@@ -14,6 +14,9 @@ export interface Certificate {
   stores: string[];
   attachment?: string;
   status: CertificateStatus;
+  statusManuallySet: boolean;
+  lastRecordId?: string;
+  lastRecordResult?: ProcessResult;
   remark?: string;
   createdAt: string;
   updatedAt: string;
@@ -28,6 +31,7 @@ export interface ProcessRecord {
   fee: number;
   result: ProcessResult;
   completeTime?: string;
+  attachment?: string;
   remark?: string;
   createdAt: string;
 }

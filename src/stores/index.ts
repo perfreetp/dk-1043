@@ -10,7 +10,7 @@ interface AppState {
   reminderRules: ReminderRule[];
   stores: Store[];
   
-  addCertificate: (certificate: Omit<Certificate, 'id' | 'status' | 'createdAt' | 'updatedAt'>) => void;
+  addCertificate: (certificate: Omit<Certificate, 'id' | 'status' | 'statusManuallySet' | 'createdAt' | 'updatedAt'>) => void;
   updateCertificate: (id: string, updates: Partial<Certificate>) => void;
   deleteCertificate: (id: string) => void;
   
@@ -24,12 +24,18 @@ interface AppState {
   
   updateCertificatesStatus: () => void;
   batchUpdateCertificatesStatus: (ids: string[], status: Certificate['status']) => void;
+  handleRecordApproved: (recordId: string, newEndDate: string, newRemark?: string) => void;
 }
 
 export const useStore = create<AppState>()(
   persist(
-    (set) => ({
-      certificates: initialCertificates,
+    (set, get) => ({
+      certificates: initialCertificates.map(cert => ({
+        ...cert,
+        statusManuallySet: false,
+        lastRecordId: undefined,
+        lastRecordResult: undefined,
+      })),
       records: initialRecords,
       reminderRules: initialReminderRules,
       stores: stores,
@@ -40,6 +46,7 @@ export const useStore = create<AppState>()(
           ...certificate,
           id: generateId(),
           status: calculateStatus(certificate.endDate),
+          statusManuallySet: false,
           createdAt: now,
           updatedAt: now,
         };
@@ -81,11 +88,21 @@ export const useStore = create<AppState>()(
       },
 
       updateRecord: (id, updates) => {
+        const state = get();
+        const record = state.records.find(r => r.id === id);
+        
         set((state) => ({
           records: state.records.map((rec) =>
             rec.id === id ? { ...rec, ...updates } : rec
           ),
         }));
+        
+        if (record && updates.result === 'approved' && updates.completeTime) {
+          const certificate = state.certificates.find(c => c.id === record.certificateId);
+          if (certificate) {
+            get().handleRecordApproved(id, certificate.endDate);
+          }
+        }
       },
 
       deleteRecord: (id) => {
@@ -125,10 +142,15 @@ export const useStore = create<AppState>()(
 
       updateCertificatesStatus: () => {
         set((state) => ({
-          certificates: state.certificates.map((cert) => ({
-            ...cert,
-            status: calculateStatus(cert.endDate),
-          })),
+          certificates: state.certificates.map((cert) => {
+            if (cert.statusManuallySet) {
+              return cert;
+            }
+            return {
+              ...cert,
+              status: calculateStatus(cert.endDate),
+            };
+          }),
         }));
       },
 
@@ -136,7 +158,26 @@ export const useStore = create<AppState>()(
         set((state) => ({
           certificates: state.certificates.map((cert) =>
             ids.includes(cert.id)
-              ? { ...cert, status, updatedAt: new Date().toISOString() }
+              ? { ...cert, status, statusManuallySet: true, updatedAt: new Date().toISOString() }
+              : cert
+          ),
+        }));
+      },
+
+      handleRecordApproved: (recordId, currentEndDate, newRemark) => {
+        set((state) => ({
+          certificates: state.certificates.map((cert) =>
+            cert.id === state.records.find(r => r.id === recordId)?.certificateId
+              ? {
+                  ...cert,
+                  endDate: new Date(new Date(currentEndDate).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                  status: 'normal',
+                  statusManuallySet: false,
+                  lastRecordId: recordId,
+                  lastRecordResult: 'approved',
+                  remark: newRemark || cert.remark,
+                  updatedAt: new Date().toISOString(),
+                }
               : cert
           ),
         }));

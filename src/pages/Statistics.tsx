@@ -8,12 +8,14 @@ import { formatDate } from '../utils';
 import * as XLSX from 'xlsx';
 
 const Statistics: React.FC = () => {
-  const { certificates, stores, batchUpdateCertificatesStatus } = useStore();
+  const { certificates, stores, records, batchUpdateCertificatesStatus } = useStore();
   const [searchText, setSearchText] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<CertificateStatus>('' as CertificateStatus);
   const [storeFilter, setStoreFilter] = useState<string>('');
   const [exportStoreFilter, setExportStoreFilter] = useState<string>('');
+  const [exportTypeFilter, setExportTypeFilter] = useState<string>('');
+  const [exportStatusFilter, setExportStatusFilter] = useState<CertificateStatus>('' as CertificateStatus);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewFile, setPreviewFile] = useState<string>('');
@@ -31,6 +33,17 @@ const Statistics: React.FC = () => {
       return matchesSearch && matchesType && matchesStatus && matchesStore;
     });
   }, [certificates, searchText, typeFilter, statusFilter, storeFilter]);
+
+  const getCertificateRecords = (certificateId: string) => {
+    return records
+      .filter((r) => r.certificateId === certificateId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  };
+
+  const getLatestRecord = (certificateId: string) => {
+    const certRecords = getCertificateRecords(certificateId);
+    return certRecords.length > 0 ? certRecords[0] : null;
+  };
 
   const statisticsByStore = useMemo(() => {
     return stores.map((store) => {
@@ -189,32 +202,43 @@ const Statistics: React.FC = () => {
     setSelectedRowKeys([]);
   };
 
-  const handleExportExcel = (storeId?: string) => {
-    let exportData = filteredCertificates;
+  const handleExportExcel = (storeId?: string, type?: string, status?: CertificateStatus) => {
+    let exportData = certificates;
     
     if (storeId) {
-      exportData = certificates.filter((cert) => cert.stores.includes(storeId));
+      exportData = exportData.filter((cert) => cert.stores.includes(storeId));
+    }
+    if (type) {
+      exportData = exportData.filter((cert) => cert.type === type);
+    }
+    if (status) {
+      exportData = exportData.filter((cert) => cert.status === status);
     }
     
     const storeName = storeId ? stores.find((s) => s.id === storeId)?.name : '全部';
     
-    const data = exportData.map((cert) => ({
-      证照编号: cert.code,
-      证照类型: CERTIFICATE_TYPE_LABELS[cert.type],
-      持有人: cert.holder,
-      发证单位: cert.issuer,
-      有效期起: cert.startDate,
-      有效期止: cert.endDate,
-      适用门店: cert.stores.map((id) => stores.find((s) => s.id === id)?.name).join(', '),
-      状态: CERTIFICATE_STATUS_LABELS[cert.status],
-      备注: cert.remark || '',
-    }));
+    const data = exportData.map((cert) => {
+      const latestRecord = getLatestRecord(cert.id);
+      return {
+        证照编号: cert.code,
+        证照类型: CERTIFICATE_TYPE_LABELS[cert.type],
+        持有人: cert.holder,
+        发证单位: cert.issuer,
+        有效期起: cert.startDate,
+        有效期止: cert.endDate,
+        适用门店: cert.stores.map((id) => stores.find((s) => s.id === id)?.name).join(', '),
+        状态: CERTIFICATE_STATUS_LABELS[cert.status],
+        最近办理结果: latestRecord ? (latestRecord.result === 'approved' ? '已通过' : latestRecord.result === 'rejected' ? '未通过' : '受理中') : '-',
+        最近办理费用: latestRecord ? `¥${latestRecord.fee.toFixed(2)}` : '-',
+        备注: cert.remark || '',
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, `${storeName}证照台账`);
     XLSX.writeFile(wb, `${storeName}证照台账_${new Date().toISOString().split('T')[0]}.xlsx`);
-    message.success(`已导出 ${storeName} 证照台账`);
+    message.success(`已导出 ${storeName} 证照台账，共 ${data.length} 条记录`);
   };
 
   const handlePrint = () => {
@@ -311,7 +335,7 @@ const Statistics: React.FC = () => {
         </Col>
       </Row>
 
-      <Card title="按门店导出台账">
+      <Card title="按门店导出台账（支持筛选）">
         <div className="flex gap-4 items-center flex-wrap">
           <span className="text-gray-600">选择门店：</span>
           <Select
@@ -319,7 +343,7 @@ const Statistics: React.FC = () => {
             value={exportStoreFilter || undefined}
             onChange={(value) => setExportStoreFilter(value)}
             allowClear
-            style={{ width: 180 }}
+            style={{ width: 140 }}
           >
             {stores.map((store) => (
               <Select.Option key={store.id} value={store.id}>
@@ -327,15 +351,55 @@ const Statistics: React.FC = () => {
               </Select.Option>
             ))}
           </Select>
+          <span className="text-gray-600">证照类型：</span>
+          <Select
+            placeholder="全部类型"
+            value={exportTypeFilter || undefined}
+            onChange={(value) => setExportTypeFilter(value)}
+            allowClear
+            style={{ width: 140 }}
+          >
+            {Object.entries(CERTIFICATE_TYPE_LABELS).map(([value, label]) => (
+              <Select.Option key={value} value={value}>
+                {String(label)}
+              </Select.Option>
+            ))}
+          </Select>
+          <span className="text-gray-600">证照状态：</span>
+          <Select
+            placeholder="全部状态"
+            value={exportStatusFilter || undefined}
+            onChange={(value) => setExportStatusFilter(value)}
+            allowClear
+            style={{ width: 120 }}
+          >
+            {Object.entries(CERTIFICATE_STATUS_LABELS).map(([value, label]) => (
+              <Select.Option key={value} value={value}>
+                {String(label)}
+              </Select.Option>
+            ))}
+          </Select>
           <Button 
             icon={<Download className="w-4 h-4" />} 
-            onClick={() => handleExportExcel(exportStoreFilter || undefined)}
+            type="primary"
+            onClick={() => handleExportExcel(
+              exportStoreFilter || undefined, 
+              exportTypeFilter || undefined, 
+              exportStatusFilter || undefined
+            )}
           >
-            导出该门店台账
+            导出筛选台账
           </Button>
-          <span className="text-sm text-gray-400">
-            提示：一个证照适用多个门店时，会在各门店台账中分别出现
-          </span>
+          <Button onClick={() => {
+            setExportStoreFilter('');
+            setExportTypeFilter('');
+            setExportStatusFilter('' as CertificateStatus);
+          }}>
+            重置筛选
+          </Button>
+        </div>
+        <div className="mt-3 text-sm text-gray-400">
+          提示：导出台账包含证照基本信息、最近办理结果和费用；一个证照适用多个门店时，在对应门店台账中都会出现
         </div>
       </Card>
 

@@ -1,13 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { Table, Button, Input, Select, Modal, Form, DatePicker, message, Tag, Card, Row, Col, Descriptions, Timeline, Divider } from 'antd';
-import { Plus, Search, Eye, Edit2, History } from 'lucide-react';
+import { Table, Button, Input, Select, Modal, Form, DatePicker, message, Tag, Card, Row, Col, Descriptions, Timeline, Divider, Popconfirm, Upload } from 'antd';
+import { Plus, Search, Eye, Edit2, History, Trash2, Paperclip } from 'lucide-react';
 import dayjs from 'dayjs';
+import type { UploadFile } from 'antd/es/upload/interface';
 import { useStore } from '../stores';
 import { PROCESS_TYPE_LABELS, PROCESS_RESULT_LABELS, type ProcessRecord, type ProcessType, type ProcessResult } from '../types';
 import { formatDateTime } from '../utils';
 
 const Records: React.FC = () => {
-  const { records, certificates, addRecord, updateRecord } = useStore();
+  const { records, certificates, addRecord, updateRecord, deleteRecord } = useStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
@@ -43,6 +44,17 @@ const Records: React.FC = () => {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [records, historyCertificateId]);
 
+  const statistics = useMemo(() => {
+    const totalFee = records.reduce((sum, r) => sum + (r.fee || 0), 0);
+    return {
+      total: records.length,
+      approved: records.filter((r) => r.result === 'approved').length,
+      rejected: records.filter((r) => r.result === 'rejected').length,
+      processing: records.filter((r) => r.result === 'processing').length,
+      totalFee,
+    };
+  }, [records]);
+
   const handleAdd = () => {
     setEditingRecord(null);
     form.resetFields();
@@ -64,9 +76,26 @@ const Records: React.FC = () => {
     setIsViewModalOpen(true);
   };
 
+  const handleDelete = (id: string) => {
+    deleteRecord(id);
+    message.success('删除成功');
+  };
+
   const handleViewHistory = (certificateId: string) => {
     setHistoryCertificateId(certificateId);
     setIsHistoryModalOpen(true);
+  };
+
+  const handleAttachmentChange = (info: { file: UploadFile }) => {
+    const file = info.file.originFileObj || info.file;
+    if (file instanceof Blob) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        form.setFieldsValue({ attachment: base64 });
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSubmit = async () => {
@@ -80,9 +109,10 @@ const Records: React.FC = () => {
         processType: values.processType,
         materials: values.materials || [],
         acceptTime,
-        fee: values.fee || 0,
+        fee: Number(values.fee) || 0,
         result: values.result,
         completeTime,
+        attachment: values.attachment || '',
         remark: values.remark || '',
       };
 
@@ -194,7 +224,7 @@ const Records: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 150,
+      width: 200,
       render: (_: unknown, record: ProcessRecord) => (
         <div className="flex gap-2">
           <Button
@@ -211,18 +241,23 @@ const Records: React.FC = () => {
           >
             编辑
           </Button>
+          <Popconfirm
+            title="确认删除"
+            description="是否确认删除此记录？"
+            onConfirm={() => handleDelete(record.id)}
+            okText="确认"
+            cancelText="取消"
+          >
+            <Button
+              type="link"
+              danger
+              icon={<Trash2 className="w-4 h-4" />}
+            />
+          </Popconfirm>
         </div>
       ),
     },
   ];
-
-  const statistics = {
-    total: records.length,
-    approved: records.filter((r) => r.result === 'approved').length,
-    rejected: records.filter((r) => r.result === 'rejected').length,
-    processing: records.filter((r) => r.result === 'processing').length,
-    totalFee: records.reduce((sum, r) => sum + r.fee, 0),
-  };
 
   return (
     <div className="space-y-6">
@@ -317,7 +352,7 @@ const Records: React.FC = () => {
             ))}
           </Select>
           <div className="ml-auto text-gray-600">
-            总费用: <span className="font-bold text-lg">¥{statistics.totalFee}</span>
+            总费用: <span className="font-bold text-lg">¥{statistics.totalFee.toFixed(2)}</span>
           </div>
         </div>
       </Card>
@@ -400,6 +435,19 @@ const Records: React.FC = () => {
           <Form.Item name="completeTime" label="完成时间">
             <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} placeholder="选择完成时间" />
           </Form.Item>
+          <Form.Item name="attachment" label="附件">
+            <Upload
+              listType="picture-card"
+              beforeUpload={() => false}
+              onChange={handleAttachmentChange}
+              maxCount={1}
+            >
+              <div>
+                <Paperclip className="w-6 h-6" />
+                <div className="mt-2">上传附件</div>
+              </div>
+            </Upload>
+          </Form.Item>
           <Form.Item name="remark" label="备注">
             <Input.TextArea rows={3} placeholder="请输入备注" />
           </Form.Item>
@@ -414,8 +462,16 @@ const Records: React.FC = () => {
           <Button key="close" onClick={() => setIsViewModalOpen(false)}>
             关闭
           </Button>,
+          <Button key="edit" type="primary" icon={<Edit2 className="w-4 h-4" />} onClick={() => {
+            if (viewRecord) {
+              setIsViewModalOpen(false);
+              handleEdit(viewRecord);
+            }
+          }}>
+            编辑记录
+          </Button>,
         ]}
-        width={600}
+        width={700}
       >
         {viewRecord && (
           <div className="py-4">
@@ -447,7 +503,7 @@ const Records: React.FC = () => {
                 {PROCESS_TYPE_LABELS[viewRecord.processType]}
               </Descriptions.Item>
               <Descriptions.Item label="提交材料">
-                {viewRecord.materials.length > 0
+                {viewRecord.materials && viewRecord.materials.length > 0
                   ? viewRecord.materials.join(', ')
                   : '-'}
               </Descriptions.Item>
@@ -455,7 +511,7 @@ const Records: React.FC = () => {
                 {viewRecord.acceptTime || '-'}
               </Descriptions.Item>
               <Descriptions.Item label="办理费用">
-                {viewRecord.fee > 0 ? `¥${viewRecord.fee}` : '-'}
+                ¥{viewRecord.fee.toFixed(2)}
               </Descriptions.Item>
               <Descriptions.Item label="办理结果">
                 <Tag color={getResultColor(viewRecord.result)}>
@@ -465,6 +521,33 @@ const Records: React.FC = () => {
               <Descriptions.Item label="完成时间">
                 {viewRecord.completeTime || '-'}
               </Descriptions.Item>
+              {viewRecord.attachment && (
+                <Descriptions.Item label="附件">
+                  <Button 
+                    type="link" 
+                    icon={<Eye className="w-4 h-4" />}
+                    onClick={() => {
+                      if (viewRecord.attachment) {
+                        Modal.info({
+                          title: '附件预览',
+                          content: (
+                            <div className="py-4">
+                              {viewRecord.attachment?.startsWith('data:') ? (
+                                <img src={viewRecord.attachment} alt="附件" className="max-w-full" />
+                              ) : (
+                                <div className="text-gray-500">{viewRecord.attachment}</div>
+                              )}
+                            </div>
+                          ),
+                          width: 800,
+                        });
+                      }
+                    }}
+                  >
+                    查看附件
+                  </Button>
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="备注">
                 {viewRecord.remark || '-'}
               </Descriptions.Item>
@@ -484,7 +567,7 @@ const Records: React.FC = () => {
           setHistoryCertificateId(null);
         }}
         footer={null}
-        width={800}
+        width={900}
       >
         {historyCertificateId && (
           <div className="py-4">
@@ -497,6 +580,18 @@ const Records: React.FC = () => {
                     <Descriptions.Item label="持有人">{cert.holder}</Descriptions.Item>
                     <Descriptions.Item label="证照类型">{cert.type === 'business_license' ? '营业执照' : cert.type === 'qualification' ? '人员资格证' : '设备检验证'}</Descriptions.Item>
                     <Descriptions.Item label="当前到期日">{cert.endDate}</Descriptions.Item>
+                    <Descriptions.Item label="当前状态">
+                      <Tag color={cert.status === 'normal' ? 'green' : cert.status === 'expiring' ? 'orange' : 'red'}>
+                        {cert.status === 'normal' ? '正常' : cert.status === 'expiring' ? '即将到期' : '已过期'}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="最近办理结果">
+                      {cert.lastRecordResult ? (
+                        <Tag color={getResultColor(cert.lastRecordResult)}>
+                          {PROCESS_RESULT_LABELS[cert.lastRecordResult]}
+                        </Tag>
+                      ) : '-'}
+                    </Descriptions.Item>
                   </Descriptions>
                 </Card>
               ) : null;
@@ -523,14 +618,31 @@ const Records: React.FC = () => {
                           <div className="mt-2 text-sm text-gray-600">
                             受理时间: {rec.acceptTime || '-'}
                           </div>
-                          {rec.fee > 0 && (
-                            <div className="text-sm text-gray-600">
-                              费用: ¥{rec.fee}
-                            </div>
-                          )}
-                          {rec.materials.length > 0 && (
+                          <div className="text-sm text-gray-600">
+                            费用: ¥{rec.fee.toFixed(2)}
+                          </div>
+                          {rec.materials && rec.materials.length > 0 && (
                             <div className="text-sm text-gray-600 mt-1">
                               材料: {rec.materials.join(', ')}
+                            </div>
+                          )}
+                          {rec.attachment && (
+                            <div className="text-sm text-gray-600 mt-1">
+                              附件: <Button type="link" size="small" onClick={() => {
+                                Modal.info({
+                                  title: '附件预览',
+                                  content: (
+                                    <div className="py-4">
+                                      {rec.attachment?.startsWith('data:') ? (
+                                        <img src={rec.attachment} alt="附件" className="max-w-full" />
+                                      ) : (
+                                        <div className="text-gray-500">{rec.attachment}</div>
+                                      )}
+                                    </div>
+                                  ),
+                                  width: 800,
+                                });
+                              }}>查看附件</Button>
                             </div>
                           )}
                           {rec.remark && (

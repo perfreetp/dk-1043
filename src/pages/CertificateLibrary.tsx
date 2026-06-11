@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Table, Button, Input, Select, Space, Tag, Modal, Form, DatePicker, Upload, Popconfirm, message } from 'antd';
-import { Plus, Search, Upload as UploadIcon, Eye, Delete, Edit2, Bell } from 'lucide-react';
+import { Plus, Search, Upload as UploadIcon, Eye, Delete, Edit2, Bell, History } from 'lucide-react';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { useStore } from '../stores';
 import { CERTIFICATE_TYPE_LABELS, CERTIFICATE_STATUS_LABELS, type Certificate, type CertificateType } from '../types';
@@ -10,7 +10,7 @@ import dayjs from 'dayjs';
 const { RangePicker } = DatePicker;
 
 const CertificateLibrary: React.FC = () => {
-  const { certificates, stores, addCertificate, updateCertificate, deleteCertificate, addRecord } = useStore();
+  const { certificates, stores, records, addCertificate, updateCertificate, deleteCertificate, addRecord } = useStore();
   const [searchText, setSearchText] = useState('');
   const [typeFilter, setTypeFilter] = useState<CertificateType | ''>('');
   const [statusFilter, setStatusFilter] = useState<Certificate['status'] | ''>('');
@@ -24,6 +24,13 @@ const CertificateLibrary: React.FC = () => {
   const [renewForm] = Form.useForm();
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [existingAttachment, setExistingAttachment] = useState<string>('');
+
+  const getLatestRecord = (certificateId: string) => {
+    const certRecords = records
+      .filter((r) => r.certificateId === certificateId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return certRecords.length > 0 ? certRecords[0] : null;
+  };
 
   const filteredCertificates = certificates.filter((cert) => {
     const matchesSearch =
@@ -100,7 +107,7 @@ const CertificateLibrary: React.FC = () => {
         processType: values.processType,
         materials: values.materials || [],
         acceptTime,
-        fee: values.fee || 0,
+        fee: Number(values.fee) || 0,
         result: 'processing' as const,
         remark: values.remark || '',
       };
@@ -172,6 +179,13 @@ const CertificateLibrary: React.FC = () => {
     form.resetFields();
   };
 
+  const getResultTag = (result?: string) => {
+    if (!result) return null;
+    const color = result === 'approved' ? 'green' : result === 'rejected' ? 'red' : 'blue';
+    const text = result === 'approved' ? '已通过' : result === 'rejected' ? '未通过' : '受理中';
+    return <Tag color={color}>{text}</Tag>;
+  };
+
   const columns = [
     {
       title: '证照编号',
@@ -191,12 +205,6 @@ const CertificateLibrary: React.FC = () => {
       title: '持有人',
       dataIndex: 'holder',
       key: 'holder',
-      width: 180,
-    },
-    {
-      title: '发证单位',
-      dataIndex: 'issuer',
-      key: 'issuer',
       width: 180,
     },
     {
@@ -252,10 +260,20 @@ const CertificateLibrary: React.FC = () => {
       ),
     },
     {
+      title: '最近办理',
+      key: 'lastRecord',
+      width: 120,
+      render: (_: unknown, record: Certificate) => {
+        const latestRecord = getLatestRecord(record.id);
+        if (!latestRecord) return <span className="text-gray-400">-</span>;
+        return getResultTag(latestRecord.result);
+      },
+    },
+    {
       title: '操作',
       key: 'action',
       fixed: 'right' as const,
-      width: 280,
+      width: 320,
       render: (_: unknown, record: Certificate) => (
         <Space size="small">
           {(record.status === 'expiring' || record.status === 'expired') && (
@@ -275,6 +293,16 @@ const CertificateLibrary: React.FC = () => {
             onClick={() => handlePreview(record)}
           >
             预览
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            icon={<History className="w-4 h-4" />}
+            onClick={() => {
+              message.info('请到办理记录页面查看该证照的完整历史');
+            }}
+          >
+            历史
           </Button>
           <Button
             type="link"
@@ -390,7 +418,7 @@ const CertificateLibrary: React.FC = () => {
             showSizeChanger: true,
             showTotal: (total) => `共 ${total} 条记录`,
           }}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 1400 }}
         />
       </div>
 
@@ -533,7 +561,7 @@ const CertificateLibrary: React.FC = () => {
             <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="fee" label="预计费用">
-            <Input type="number" placeholder="请输入预计费用" />
+            <Input type="number" min={0} placeholder="请输入预计费用" />
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <Input.TextArea rows={3} placeholder="请输入备注" />
