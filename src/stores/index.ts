@@ -16,12 +16,14 @@ interface AppState {
   
   addRecord: (record: Omit<ProcessRecord, 'id' | 'createdAt'>) => void;
   updateRecord: (id: string, updates: Partial<ProcessRecord>) => void;
+  deleteRecord: (id: string) => void;
   
   addReminderRule: (rule: Omit<ReminderRule, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateReminderRule: (id: string, updates: Partial<ReminderRule>) => void;
   deleteReminderRule: (id: string) => void;
   
   updateCertificatesStatus: () => void;
+  batchUpdateCertificatesStatus: (ids: string[], status: Certificate['status']) => void;
 }
 
 export const useStore = create<AppState>()(
@@ -53,7 +55,7 @@ export const useStore = create<AppState>()(
               ? {
                   ...cert,
                   ...updates,
-                  status: updates.endDate ? calculateStatus(updates.endDate) : cert.status,
+                  status: updates.status ?? (updates.endDate ? calculateStatus(updates.endDate) : cert.status),
                   updatedAt: new Date().toISOString(),
                 }
               : cert
@@ -83,6 +85,12 @@ export const useStore = create<AppState>()(
           records: state.records.map((rec) =>
             rec.id === id ? { ...rec, ...updates } : rec
           ),
+        }));
+      },
+
+      deleteRecord: (id) => {
+        set((state) => ({
+          records: state.records.filter((rec) => rec.id !== id),
         }));
       },
 
@@ -121,6 +129,16 @@ export const useStore = create<AppState>()(
             ...cert,
             status: calculateStatus(cert.endDate),
           })),
+        }));
+      },
+
+      batchUpdateCertificatesStatus: (ids, status) => {
+        set((state) => ({
+          certificates: state.certificates.map((cert) =>
+            ids.includes(cert.id)
+              ? { ...cert, status, updatedAt: new Date().toISOString() }
+              : cert
+          ),
         }));
       },
     }),

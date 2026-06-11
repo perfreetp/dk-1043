@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Table, Button, Input, Select, Modal, Form, DatePicker, InputNumber, message, Tag, Card, Row, Col, Descriptions } from 'antd';
-import { Plus, Search, Eye, Edit2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Table, Button, Input, Select, Modal, Form, DatePicker, message, Tag, Card, Row, Col, Descriptions, Timeline, Divider } from 'antd';
+import { Plus, Search, Eye, Edit2, History } from 'lucide-react';
 import dayjs from 'dayjs';
 import { useStore } from '../stores';
 import { PROCESS_TYPE_LABELS, PROCESS_RESULT_LABELS, type ProcessRecord, type ProcessType, type ProcessResult } from '../types';
@@ -10,22 +10,38 @@ const Records: React.FC = () => {
   const { records, certificates, addRecord, updateRecord } = useStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<ProcessRecord | null>(null);
+  const [viewRecord, setViewRecord] = useState<ProcessRecord | null>(null);
+  const [historyCertificateId, setHistoryCertificateId] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [processTypeFilter, setProcessTypeFilter] = useState<ProcessType | ''>('');
   const [resultFilter, setResultFilter] = useState<ProcessResult | ''>('');
+  const [certificateFilter, setCertificateFilter] = useState<string>('');
   const [form] = Form.useForm();
 
-  const filteredRecords = records.filter((rec) => {
-    const certificate = certificates.find((c) => c.id === rec.certificateId);
-    const matchesSearch =
-      !searchText ||
-      (certificate?.code.toLowerCase().includes(searchText.toLowerCase()) ?? false) ||
-      (certificate?.holder.toLowerCase().includes(searchText.toLowerCase()) ?? false);
-    const matchesType = !processTypeFilter || rec.processType === processTypeFilter;
-    const matchesResult = !resultFilter || rec.result === resultFilter;
-    return matchesSearch && matchesType && matchesResult;
-  });
+  const filteredRecords = useMemo(() => {
+    return records
+      .filter((rec) => {
+        const certificate = certificates.find((c) => c.id === rec.certificateId);
+        const matchesSearch =
+          !searchText ||
+          (certificate?.code.toLowerCase().includes(searchText.toLowerCase()) ?? false) ||
+          (certificate?.holder.toLowerCase().includes(searchText.toLowerCase()) ?? false);
+        const matchesType = !processTypeFilter || rec.processType === processTypeFilter;
+        const matchesResult = !resultFilter || rec.result === resultFilter;
+        const matchesCertificate = !certificateFilter || rec.certificateId === certificateFilter;
+        return matchesSearch && matchesType && matchesResult && matchesCertificate;
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [records, certificates, searchText, processTypeFilter, resultFilter, certificateFilter]);
+
+  const certificateHistory = useMemo(() => {
+    if (!historyCertificateId) return [];
+    return records
+      .filter((rec) => rec.certificateId === historyCertificateId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [records, historyCertificateId]);
 
   const handleAdd = () => {
     setEditingRecord(null);
@@ -44,8 +60,13 @@ const Records: React.FC = () => {
   };
 
   const handleView = (record: ProcessRecord) => {
-    setEditingRecord(record);
+    setViewRecord(record);
     setIsViewModalOpen(true);
+  };
+
+  const handleViewHistory = (certificateId: string) => {
+    setHistoryCertificateId(certificateId);
+    setIsHistoryModalOpen(true);
   };
 
   const handleSubmit = async () => {
@@ -101,11 +122,22 @@ const Records: React.FC = () => {
     {
       title: '关联证照',
       key: 'certificate',
-      width: 180,
+      width: 200,
       render: (_: unknown, record: ProcessRecord) => {
         const cert = getCertificateInfo(record.certificateId);
         return cert ? (
-          <span className="text-blue-600">{cert.code}</span>
+          <div>
+            <span className="text-blue-600">{cert.code}</span>
+            <Button 
+              type="link" 
+              size="small" 
+              icon={<History className="w-3 h-3" />}
+              onClick={() => handleViewHistory(record.certificateId)}
+              className="ml-2"
+            >
+              历史
+            </Button>
+          </div>
         ) : (
           <span className="text-gray-400">已删除</span>
         );
@@ -246,6 +278,19 @@ const Records: React.FC = () => {
             style={{ width: 240 }}
           />
           <Select
+            placeholder="按证照筛选"
+            value={certificateFilter || undefined}
+            onChange={(value) => setCertificateFilter(value)}
+            allowClear
+            style={{ width: 200 }}
+          >
+            {certificates.map((cert) => (
+              <Select.Option key={cert.id} value={cert.id}>
+                {cert.code} - {cert.holder}
+              </Select.Option>
+            ))}
+          </Select>
+          <Select
             placeholder="办理类型"
             value={processTypeFilter || undefined}
             onChange={(value) => setProcessTypeFilter(value)}
@@ -341,7 +386,7 @@ const Records: React.FC = () => {
             <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} placeholder="选择受理时间" />
           </Form.Item>
           <Form.Item name="fee" label="办理费用" initialValue={0}>
-            <InputNumber min={0} style={{ width: '100%' }} placeholder="请输入办理费用" />
+            <Input type="number" min={0} style={{ width: '100%' }} placeholder="请输入办理费用" />
           </Form.Item>
           <Form.Item name="result" label="办理结果" initialValue="processing">
             <Select placeholder="请选择办理结果">
@@ -372,44 +417,147 @@ const Records: React.FC = () => {
         ]}
         width={600}
       >
-        {editingRecord && (
+        {viewRecord && (
           <div className="py-4">
             <Descriptions bordered column={1}>
               <Descriptions.Item label="关联证照">
                 {(() => {
-                  const cert = getCertificateInfo(editingRecord.certificateId);
-                  return cert ? `${cert.code} - ${cert.holder}` : '已删除';
+                  const cert = getCertificateInfo(viewRecord.certificateId);
+                  return cert ? (
+                    <div>
+                      <span>{cert.code} - {cert.holder}</span>
+                      <Button 
+                        type="link" 
+                        size="small" 
+                        icon={<History className="w-3 h-3" />}
+                        onClick={() => {
+                          setHistoryCertificateId(viewRecord.certificateId);
+                          setIsHistoryModalOpen(true);
+                          setIsViewModalOpen(false);
+                        }}
+                        className="ml-2"
+                      >
+                        查看历史
+                      </Button>
+                    </div>
+                  ) : '已删除';
                 })()}
               </Descriptions.Item>
               <Descriptions.Item label="办理类型">
-                {PROCESS_TYPE_LABELS[editingRecord.processType]}
+                {PROCESS_TYPE_LABELS[viewRecord.processType]}
               </Descriptions.Item>
               <Descriptions.Item label="提交材料">
-                {editingRecord.materials.length > 0
-                  ? editingRecord.materials.join(', ')
+                {viewRecord.materials.length > 0
+                  ? viewRecord.materials.join(', ')
                   : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="受理时间">
-                {editingRecord.acceptTime || '-'}
+                {viewRecord.acceptTime || '-'}
               </Descriptions.Item>
               <Descriptions.Item label="办理费用">
-                {editingRecord.fee > 0 ? `¥${editingRecord.fee}` : '-'}
+                {viewRecord.fee > 0 ? `¥${viewRecord.fee}` : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="办理结果">
-                <Tag color={getResultColor(editingRecord.result)}>
-                  {PROCESS_RESULT_LABELS[editingRecord.result]}
+                <Tag color={getResultColor(viewRecord.result)}>
+                  {PROCESS_RESULT_LABELS[viewRecord.result]}
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="完成时间">
-                {editingRecord.completeTime || '-'}
+                {viewRecord.completeTime || '-'}
               </Descriptions.Item>
               <Descriptions.Item label="备注">
-                {editingRecord.remark || '-'}
+                {viewRecord.remark || '-'}
               </Descriptions.Item>
               <Descriptions.Item label="创建时间">
-                {formatDateTime(editingRecord.createdAt)}
+                {formatDateTime(viewRecord.createdAt)}
               </Descriptions.Item>
             </Descriptions>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title="证照办理历史"
+        open={isHistoryModalOpen}
+        onCancel={() => {
+          setIsHistoryModalOpen(false);
+          setHistoryCertificateId(null);
+        }}
+        footer={null}
+        width={800}
+      >
+        {historyCertificateId && (
+          <div className="py-4">
+            {(() => {
+              const cert = getCertificateInfo(historyCertificateId);
+              return cert ? (
+                <Card size="small" className="mb-4 bg-blue-50">
+                  <Descriptions column={2} size="small">
+                    <Descriptions.Item label="证照编号">{cert.code}</Descriptions.Item>
+                    <Descriptions.Item label="持有人">{cert.holder}</Descriptions.Item>
+                    <Descriptions.Item label="证照类型">{cert.type === 'business_license' ? '营业执照' : cert.type === 'qualification' ? '人员资格证' : '设备检验证'}</Descriptions.Item>
+                    <Descriptions.Item label="当前到期日">{cert.endDate}</Descriptions.Item>
+                  </Descriptions>
+                </Card>
+              ) : null;
+            })()}
+            
+            <Divider orientation="left">办理时间线</Divider>
+            
+            {certificateHistory.length === 0 ? (
+              <div className="text-center text-gray-500 py-8">
+                暂无办理记录
+              </div>
+            ) : (
+              <Timeline
+                items={certificateHistory.map((rec) => ({
+                  color: rec.result === 'approved' ? 'green' : rec.result === 'rejected' ? 'red' : 'blue',
+                  children: (
+                    <Card size="small" className="mb-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <Tag color={rec.result === 'approved' ? 'green' : rec.result === 'rejected' ? 'red' : 'blue'}>
+                            {PROCESS_TYPE_LABELS[rec.processType]}
+                          </Tag>
+                          <Tag>{PROCESS_RESULT_LABELS[rec.result]}</Tag>
+                          <div className="mt-2 text-sm text-gray-600">
+                            受理时间: {rec.acceptTime || '-'}
+                          </div>
+                          {rec.fee > 0 && (
+                            <div className="text-sm text-gray-600">
+                              费用: ¥{rec.fee}
+                            </div>
+                          )}
+                          {rec.materials.length > 0 && (
+                            <div className="text-sm text-gray-600 mt-1">
+                              材料: {rec.materials.join(', ')}
+                            </div>
+                          )}
+                          {rec.remark && (
+                            <div className="text-sm text-gray-500 mt-1">
+                              备注: {rec.remark}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-gray-400">
+                            {formatDateTime(rec.createdAt)}
+                          </div>
+                          <Button 
+                            type="link" 
+                            size="small"
+                            icon={<Edit2 className="w-3 h-3" />}
+                            onClick={() => handleEdit(rec)}
+                          >
+                            编辑
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+                  ),
+                }))}
+              />
+            )}
           </div>
         )}
       </Modal>

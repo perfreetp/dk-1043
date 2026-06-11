@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Table, Button, Input, Select, Space, Tag, Modal, Form, DatePicker, Upload, Popconfirm, message } from 'antd';
-import { Plus, Search, Upload as UploadIcon, Eye, Delete, Edit2 } from 'lucide-react';
+import { Plus, Search, Upload as UploadIcon, Eye, Delete, Edit2, Bell } from 'lucide-react';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { useStore } from '../stores';
 import { CERTIFICATE_TYPE_LABELS, CERTIFICATE_STATUS_LABELS, type Certificate, type CertificateType } from '../types';
@@ -10,15 +10,18 @@ import dayjs from 'dayjs';
 const { RangePicker } = DatePicker;
 
 const CertificateLibrary: React.FC = () => {
-  const { certificates, stores, addCertificate, updateCertificate, deleteCertificate } = useStore();
+  const { certificates, stores, addCertificate, updateCertificate, deleteCertificate, addRecord } = useStore();
   const [searchText, setSearchText] = useState('');
   const [typeFilter, setTypeFilter] = useState<CertificateType | ''>('');
   const [statusFilter, setStatusFilter] = useState<Certificate['status'] | ''>('');
   const [storeFilter, setStoreFilter] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isRenewModalOpen, setIsRenewModalOpen] = useState(false);
   const [editingCertificate, setEditingCertificate] = useState<Certificate | null>(null);
+  const [renewingCertificate, setRenewingCertificate] = useState<Certificate | null>(null);
   const [form] = Form.useForm();
+  const [renewForm] = Form.useForm();
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [existingAttachment, setExistingAttachment] = useState<string>('');
 
@@ -58,6 +61,56 @@ const CertificateLibrary: React.FC = () => {
       setIsPreviewOpen(true);
     } else {
       message.info('暂无附件');
+    }
+  };
+
+  const handleRenew = (record: Certificate) => {
+    setRenewingCertificate(record);
+    renewForm.setFieldsValue({
+      certificateId: record.id,
+      processType: 'renewal',
+      acceptTime: dayjs(),
+      materials: getSuggestedMaterials(record.type),
+      remark: `建议续期，提前准备材料。证照到期日：${formatDate(record.endDate)}`,
+    });
+    setIsRenewModalOpen(true);
+  };
+
+  const getSuggestedMaterials = (type: CertificateType): string[] => {
+    const baseMaterials = ['身份证', '原证书', '申请表'];
+    switch (type) {
+      case 'business_license':
+        return [...baseMaterials, '营业执照副本', '法人身份证', '公司章程'];
+      case 'qualification':
+        return [...baseMaterials, '培训证明', '体检报告'];
+      case 'inspection':
+        return [...baseMaterials, '设备检测报告', '维护记录'];
+      default:
+        return baseMaterials;
+    }
+  };
+
+  const handleRenewSubmit = async () => {
+    try {
+      const values = await renewForm.validateFields();
+      const acceptTime = values.acceptTime ? values.acceptTime.format('YYYY-MM-DD HH:mm') : '';
+      
+      const recordData = {
+        certificateId: values.certificateId,
+        processType: values.processType,
+        materials: values.materials || [],
+        acceptTime,
+        fee: values.fee || 0,
+        result: 'processing' as const,
+        remark: values.remark || '',
+      };
+
+      addRecord(recordData);
+      message.success('已成功创建续办记录，请到办理记录页面继续编辑');
+      setIsRenewModalOpen(false);
+      renewForm.resetFields();
+    } catch (error) {
+      console.error('Validation failed:', error);
     }
   };
 
@@ -202,9 +255,19 @@ const CertificateLibrary: React.FC = () => {
       title: '操作',
       key: 'action',
       fixed: 'right' as const,
-      width: 240,
+      width: 280,
       render: (_: unknown, record: Certificate) => (
         <Space size="small">
+          {(record.status === 'expiring' || record.status === 'expired') && (
+            <Button
+              type="primary"
+              size="small"
+              icon={<Bell className="w-4 h-4" />}
+              onClick={() => handleRenew(record)}
+            >
+              续办
+            </Button>
+          )}
           <Button
             type="link"
             size="small"
@@ -408,6 +471,69 @@ const CertificateLibrary: React.FC = () => {
                 已有附件: <Button type="link" size="small" onClick={() => { setPreviewUrl(existingAttachment); setIsPreviewOpen(true); }}>预览</Button>
               </div>
             )}
+          </Form.Item>
+          <Form.Item name="remark" label="备注">
+            <Input.TextArea rows={3} placeholder="请输入备注" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="快速创建续办记录"
+        open={isRenewModalOpen}
+        onOk={handleRenewSubmit}
+        onCancel={() => {
+          setIsRenewModalOpen(false);
+          renewForm.resetFields();
+        }}
+        width={600}
+        okText="确认创建"
+        cancelText="取消"
+      >
+        {renewingCertificate && (
+          <div className="bg-blue-50 p-4 rounded-lg mb-4">
+            <div className="font-medium text-blue-800">{renewingCertificate.code}</div>
+            <div className="text-sm text-blue-600 mt-1">{renewingCertificate.holder}</div>
+            <div className="text-sm text-blue-600">当前到期日：{formatDate(renewingCertificate.endDate)}</div>
+          </div>
+        )}
+        <Form form={renewForm} layout="vertical" className="mt-4">
+          <Form.Item
+            name="certificateId"
+            label="关联证照"
+            rules={[{ required: true, message: '请选择关联证照' }]}
+          >
+            <Select placeholder="请选择关联证照" disabled>
+              {certificates.map((cert) => (
+                <Select.Option key={cert.id} value={cert.id}>
+                  {cert.code} - {cert.holder}
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item
+            name="processType"
+            label="办理类型"
+            rules={[{ required: true, message: '请选择办理类型' }]}
+          >
+            <Select placeholder="请选择办理类型">
+              <Select.Option value="renewal">续期</Select.Option>
+              <Select.Option value="new">新办</Select.Option>
+              <Select.Option value="change">变更</Select.Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="materials" label="建议材料">
+            <Select mode="tags" placeholder="请选择或输入提交材料">
+              {getSuggestedMaterials(renewingCertificate?.type || 'business_license').map((m) => (
+                <Select.Option key={m} value={m}>{m}</Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item name="acceptTime" label="受理时间">
+            <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="fee" label="预计费用">
+            <Input type="number" placeholder="请输入预计费用" />
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <Input.TextArea rows={3} placeholder="请输入备注" />

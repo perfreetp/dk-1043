@@ -8,11 +8,12 @@ import { formatDate } from '../utils';
 import * as XLSX from 'xlsx';
 
 const Statistics: React.FC = () => {
-  const { certificates, stores, updateCertificate } = useStore();
+  const { certificates, stores, batchUpdateCertificatesStatus } = useStore();
   const [searchText, setSearchText] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<CertificateStatus>('' as CertificateStatus);
   const [storeFilter, setStoreFilter] = useState<string>('');
+  const [exportStoreFilter, setExportStoreFilter] = useState<string>('');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewFile, setPreviewFile] = useState<string>('');
@@ -183,15 +184,21 @@ const Statistics: React.FC = () => {
       message.warning('请先选择要更新的证照');
       return;
     }
-    selectedRowKeys.forEach((id) => {
-      updateCertificate(id as string, { status: newStatus });
-    });
-    message.success(`已更新 ${selectedRowKeys.length} 条记录的状态`);
+    batchUpdateCertificatesStatus(selectedRowKeys as string[], newStatus);
+    message.success(`已更新 ${selectedRowKeys.length} 条记录的状态为 ${CERTIFICATE_STATUS_LABELS[newStatus]}`);
     setSelectedRowKeys([]);
   };
 
-  const handleExportExcel = () => {
-    const exportData = filteredCertificates.map((cert) => ({
+  const handleExportExcel = (storeId?: string) => {
+    let exportData = filteredCertificates;
+    
+    if (storeId) {
+      exportData = certificates.filter((cert) => cert.stores.includes(storeId));
+    }
+    
+    const storeName = storeId ? stores.find((s) => s.id === storeId)?.name : '全部';
+    
+    const data = exportData.map((cert) => ({
       证照编号: cert.code,
       证照类型: CERTIFICATE_TYPE_LABELS[cert.type],
       持有人: cert.holder,
@@ -203,11 +210,11 @@ const Statistics: React.FC = () => {
       备注: cert.remark || '',
     }));
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
+    const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '证照清单');
-    XLSX.writeFile(wb, `证照清单_${new Date().toISOString().split('T')[0]}.xlsx`);
-    message.success('导出成功');
+    XLSX.utils.book_append_sheet(wb, ws, `${storeName}证照台账`);
+    XLSX.writeFile(wb, `${storeName}证照台账_${new Date().toISOString().split('T')[0]}.xlsx`);
+    message.success(`已导出 ${storeName} 证照台账`);
   };
 
   const handlePrint = () => {
@@ -247,7 +254,7 @@ const Statistics: React.FC = () => {
           <Button icon={<Printer className="w-4 h-4" />} onClick={handlePrint}>
             打印台账
           </Button>
-          <Button type="primary" icon={<Download className="w-4 h-4" />} onClick={handleExportExcel}>
+          <Button type="primary" icon={<Download className="w-4 h-4" />} onClick={() => handleExportExcel()}>
             导出清单
           </Button>
         </Space>
@@ -303,6 +310,34 @@ const Statistics: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      <Card title="按门店导出台账">
+        <div className="flex gap-4 items-center flex-wrap">
+          <span className="text-gray-600">选择门店：</span>
+          <Select
+            placeholder="全部门店"
+            value={exportStoreFilter || undefined}
+            onChange={(value) => setExportStoreFilter(value)}
+            allowClear
+            style={{ width: 180 }}
+          >
+            {stores.map((store) => (
+              <Select.Option key={store.id} value={store.id}>
+                {store.name}
+              </Select.Option>
+            ))}
+          </Select>
+          <Button 
+            icon={<Download className="w-4 h-4" />} 
+            onClick={() => handleExportExcel(exportStoreFilter || undefined)}
+          >
+            导出该门店台账
+          </Button>
+          <span className="text-sm text-gray-400">
+            提示：一个证照适用多个门店时，会在各门店台账中分别出现
+          </span>
+        </div>
+      </Card>
 
       <Card title="证照清单">
         <div className="mb-4 flex gap-4 flex-wrap">
@@ -365,7 +400,7 @@ const Statistics: React.FC = () => {
           </Button>
         </div>
 
-        <div className="mb-4 flex gap-2">
+        <div className="mb-4 flex gap-2 items-center flex-wrap">
           <span className="text-gray-600">批量操作：</span>
           <Button size="small" onClick={() => handleBatchUpdateStatus('normal')}>
             设为正常
