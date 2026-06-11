@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Modal, Form, DatePicker, Upload, Popconfirm, message } from 'antd';
+import { Table, Button, Input, Select, Space, Tag, Modal, Form, DatePicker, Upload, Popconfirm, message, Card, Descriptions, Timeline, Divider } from 'antd';
 import { Plus, Search, Upload as UploadIcon, Eye, Delete, Edit2, Bell, History } from 'lucide-react';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { useStore } from '../stores';
@@ -18,17 +18,23 @@ const CertificateLibrary: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isRenewModalOpen, setIsRenewModalOpen] = useState(false);
+  const [isArchiveOpen, setIsArchiveOpen] = useState(false);
   const [editingCertificate, setEditingCertificate] = useState<Certificate | null>(null);
   const [renewingCertificate, setRenewingCertificate] = useState<Certificate | null>(null);
+  const [archiveCertificate, setArchiveCertificate] = useState<Certificate | null>(null);
   const [form] = Form.useForm();
   const [renewForm] = Form.useForm();
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [existingAttachment, setExistingAttachment] = useState<string>('');
 
-  const getLatestRecord = (certificateId: string) => {
-    const certRecords = records
+  const getCertificateRecords = (certificateId: string) => {
+    return records
       .filter((r) => r.certificateId === certificateId)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  };
+
+  const getLatestRecord = (certificateId: string) => {
+    const certRecords = getCertificateRecords(certificateId);
     return certRecords.length > 0 ? certRecords[0] : null;
   };
 
@@ -71,6 +77,11 @@ const CertificateLibrary: React.FC = () => {
     }
   };
 
+  const handleViewArchive = (record: Certificate) => {
+    setArchiveCertificate(record);
+    setIsArchiveOpen(true);
+  };
+
   const handleRenew = (record: Certificate) => {
     setRenewingCertificate(record);
     renewForm.setFieldsValue({
@@ -78,6 +89,7 @@ const CertificateLibrary: React.FC = () => {
       processType: 'renewal',
       acceptTime: dayjs(),
       materials: getSuggestedMaterials(record.type),
+      estimatedFee: 0,
       remark: `建议续期，提前准备材料。证照到期日：${formatDate(record.endDate)}`,
     });
     setIsRenewModalOpen(true);
@@ -107,7 +119,7 @@ const CertificateLibrary: React.FC = () => {
         processType: values.processType,
         materials: values.materials || [],
         acceptTime,
-        fee: Number(values.fee) || 0,
+        estimatedFee: Number(values.estimatedFee) || 0,
         result: 'processing' as const,
         remark: values.remark || '',
       };
@@ -184,6 +196,12 @@ const CertificateLibrary: React.FC = () => {
     const color = result === 'approved' ? 'green' : result === 'rejected' ? 'red' : 'blue';
     const text = result === 'approved' ? '已通过' : result === 'rejected' ? '未通过' : '受理中';
     return <Tag color={color}>{text}</Tag>;
+  };
+
+  const getResultColor = (result?: string) => {
+    if (result === 'approved') return 'green';
+    if (result === 'rejected') return 'red';
+    return 'blue';
   };
 
   const columns = [
@@ -298,11 +316,9 @@ const CertificateLibrary: React.FC = () => {
             type="link"
             size="small"
             icon={<History className="w-4 h-4" />}
-            onClick={() => {
-              message.info('请到办理记录页面查看该证照的完整历史');
-            }}
+            onClick={() => handleViewArchive(record)}
           >
-            历史
+            档案
           </Button>
           <Button
             type="link"
@@ -560,13 +576,150 @@ const CertificateLibrary: React.FC = () => {
           <Form.Item name="acceptTime" label="受理时间">
             <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="fee" label="预计费用">
+          <Form.Item name="estimatedFee" label="预计费用">
             <Input type="number" min={0} placeholder="请输入预计费用" />
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <Input.TextArea rows={3} placeholder="请输入备注" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="证照续办档案"
+        open={isArchiveOpen}
+        onCancel={() => {
+          setIsArchiveOpen(false);
+          setArchiveCertificate(null);
+        }}
+        footer={null}
+        width={900}
+      >
+        {archiveCertificate && (
+          <div className="py-4">
+            <Card size="small" className="mb-4 bg-blue-50">
+              <Descriptions column={2} size="small">
+                <Descriptions.Item label="证照编号">{archiveCertificate.code}</Descriptions.Item>
+                <Descriptions.Item label="持有人">{archiveCertificate.holder}</Descriptions.Item>
+                <Descriptions.Item label="证照类型">{CERTIFICATE_TYPE_LABELS[archiveCertificate.type]}</Descriptions.Item>
+                <Descriptions.Item label="发证单位">{archiveCertificate.issuer}</Descriptions.Item>
+                <Descriptions.Item label="当前到期日">{formatDate(archiveCertificate.endDate)}</Descriptions.Item>
+                <Descriptions.Item label="当前状态">
+                  <Tag color={archiveCertificate.status === 'normal' ? 'green' : archiveCertificate.status === 'expiring' ? 'orange' : 'red'}>
+                    {CERTIFICATE_STATUS_LABELS[archiveCertificate.status]}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="适用门店">
+                  {archiveCertificate.stores.map((id) => stores.find((s) => s.id === id)?.name).join(', ')}
+                </Descriptions.Item>
+                <Descriptions.Item label="最近办理结果">
+                  {getResultTag(archiveCertificate.lastRecordResult)}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+
+            <Divider orientation="left">续办历史时间线</Divider>
+
+            {(() => {
+              const certRecords = getCertificateRecords(archiveCertificate.id);
+              if (certRecords.length === 0) {
+                return (
+                  <div className="text-center text-gray-500 py-8">
+                    暂无续办记录
+                  </div>
+                );
+              }
+
+              return (
+                <Timeline
+                  items={certRecords.map((rec) => ({
+                    color: getResultColor(rec.result),
+                    children: (
+                      <Card size="small" className="mb-2">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <Tag color={getResultColor(rec.result)}>
+                              {rec.processType === 'renewal' ? '续期' : rec.processType === 'new' ? '新办' : rec.processType === 'change' ? '变更' : '注销'}
+                            </Tag>
+                            <Tag>{rec.result === 'approved' ? '已通过' : rec.result === 'rejected' ? '未通过' : '受理中'}</Tag>
+                            <div className="mt-2 text-sm text-gray-600">
+                              受理时间: {rec.acceptTime || '-'}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              预计费用: ¥{rec.estimatedFee.toFixed(2)}
+                              {rec.actualFee !== undefined && (
+                                <span className="ml-2">| 实际费用: ¥{rec.actualFee.toFixed(2)}</span>
+                              )}
+                            </div>
+                            {rec.materials && rec.materials.length > 0 && (
+                              <div className="text-sm text-gray-600 mt-1">
+                                材料: {rec.materials.join(', ')}
+                              </div>
+                            )}
+                            {rec.attachment && (
+                              <div className="text-sm text-gray-600 mt-1">
+                                附件: <Button type="link" size="small" onClick={() => {
+                                  Modal.info({
+                                    title: '附件预览',
+                                    content: (
+                                      <div className="py-4">
+                                        {rec.attachment?.startsWith('data:') ? (
+                                          <img src={rec.attachment} alt="附件" className="max-w-full" />
+                                        ) : (
+                                          <div className="text-gray-500">{rec.attachment}</div>
+                                        )}
+                                      </div>
+                                    ),
+                                    width: 800,
+                                  });
+                                }}>查看附件</Button>
+                              </div>
+                            )}
+                            {rec.remark && (
+                              <div className="text-sm text-gray-500 mt-1">
+                                备注: {rec.remark}
+                              </div>
+                            )}
+                            <div className="text-xs text-gray-400 mt-2">
+                              创建时间: {dayjs(rec.createdAt).format('YYYY-MM-DD HH:mm')}
+                              {rec.completeTime && <span className="ml-4">完成时间: {rec.completeTime}</span>}
+                            </div>
+                          </div>
+                          <div>
+                            <Button 
+                              type="link" 
+                              size="small"
+                              icon={<Edit2 className="w-3 h-3" />}
+                              onClick={() => {
+                                message.info('请到办理记录页面编辑此记录');
+                                setIsArchiveOpen(false);
+                              }}
+                            >
+                              编辑
+                            </Button>
+                          </div>
+                        </div>
+                      </Card>
+                    ),
+                  }))}
+                />
+              );
+            })()}
+
+            <div className="mt-4">
+              <Button 
+                type="primary" 
+                icon={<Bell className="w-4 h-4" />}
+                onClick={() => {
+                  setIsArchiveOpen(false);
+                  handleRenew(archiveCertificate);
+                }}
+              >
+                新建续办记录
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal

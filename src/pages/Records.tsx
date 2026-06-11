@@ -45,7 +45,7 @@ const Records: React.FC = () => {
   }, [records, historyCertificateId]);
 
   const statistics = useMemo(() => {
-    const totalFee = records.reduce((sum, r) => sum + (r.fee || 0), 0);
+    const totalFee = records.reduce((sum, r) => sum + ((r.actualFee ?? r.estimatedFee) || 0), 0);
     return {
       total: records.length,
       approved: records.filter((r) => r.result === 'approved').length,
@@ -109,7 +109,8 @@ const Records: React.FC = () => {
         processType: values.processType,
         materials: values.materials || [],
         acceptTime,
-        fee: Number(values.fee) || 0,
+        estimatedFee: Number(values.estimatedFee) || 0,
+        actualFee: values.actualFee ? Number(values.actualFee) : undefined,
         result: values.result,
         completeTime,
         attachment: values.attachment || '',
@@ -146,6 +147,13 @@ const Records: React.FC = () => {
 
   const getCertificateInfo = (certificateId: string) => {
     return certificates.find((c) => c.id === certificateId);
+  };
+
+  const getDisplayFee = (record: ProcessRecord) => {
+    if (record.actualFee !== undefined && record.actualFee > 0) {
+      return `¥${record.actualFee.toFixed(2)}`;
+    }
+    return `¥${record.estimatedFee.toFixed(2)} (预)`;
   };
 
   const columns = [
@@ -197,11 +205,11 @@ const Records: React.FC = () => {
       render: (time: string) => time || '-',
     },
     {
-      title: '办理费用',
+      title: '费用',
       dataIndex: 'fee',
       key: 'fee',
-      width: 100,
-      render: (fee: number) => fee > 0 ? `¥${fee}` : '-',
+      width: 130,
+      render: (_: unknown, record: ProcessRecord) => getDisplayFee(record),
     },
     {
       title: '办理结果',
@@ -352,7 +360,7 @@ const Records: React.FC = () => {
             ))}
           </Select>
           <div className="ml-auto text-gray-600">
-            总费用: <span className="font-bold text-lg">¥{statistics.totalFee.toFixed(2)}</span>
+            总费用(实际): <span className="font-bold text-lg">¥{statistics.totalFee.toFixed(2)}</span>
           </div>
         </div>
       </Card>
@@ -420,8 +428,11 @@ const Records: React.FC = () => {
           <Form.Item name="acceptTime" label="受理时间">
             <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} placeholder="选择受理时间" />
           </Form.Item>
-          <Form.Item name="fee" label="办理费用" initialValue={0}>
-            <Input type="number" min={0} style={{ width: '100%' }} placeholder="请输入办理费用" />
+          <Form.Item name="estimatedFee" label="预计费用" initialValue={0}>
+            <Input type="number" min={0} style={{ width: '100%' }} placeholder="请输入预计费用" />
+          </Form.Item>
+          <Form.Item name="actualFee" label="实际费用">
+            <Input type="number" min={0} style={{ width: '100%' }} placeholder="请输入实际费用（选填）" />
           </Form.Item>
           <Form.Item name="result" label="办理结果" initialValue="processing">
             <Select placeholder="请选择办理结果">
@@ -510,8 +521,13 @@ const Records: React.FC = () => {
               <Descriptions.Item label="受理时间">
                 {viewRecord.acceptTime || '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="办理费用">
-                ¥{viewRecord.fee.toFixed(2)}
+              <Descriptions.Item label="预计费用">
+                ¥{viewRecord.estimatedFee.toFixed(2)}
+              </Descriptions.Item>
+              <Descriptions.Item label="实际费用">
+                {viewRecord.actualFee !== undefined && viewRecord.actualFee > 0
+                  ? `¥${viewRecord.actualFee.toFixed(2)}`
+                  : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="办理结果">
                 <Tag color={getResultColor(viewRecord.result)}>
@@ -619,7 +635,10 @@ const Records: React.FC = () => {
                             受理时间: {rec.acceptTime || '-'}
                           </div>
                           <div className="text-sm text-gray-600">
-                            费用: ¥{rec.fee.toFixed(2)}
+                            预计费用: ¥{rec.estimatedFee.toFixed(2)}
+                            {rec.actualFee !== undefined && rec.actualFee > 0 && (
+                              <span className="ml-2">| 实际费用: ¥{rec.actualFee.toFixed(2)}</span>
+                            )}
                           </div>
                           {rec.materials && rec.materials.length > 0 && (
                             <div className="text-sm text-gray-600 mt-1">

@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Card, Row, Col, Table, Input, Select, Button, Tag, Modal, message, Space } from 'antd';
-import { Search, Download, Printer, RefreshCw, Eye } from 'lucide-react';
+import { Card, Row, Col, Table, Input, Select, Button, Tag, Modal, message, Space, Statistic, Timeline } from 'antd';
+import { Search, Download, Printer, RefreshCw, Eye, FileText, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import { useStore } from '../stores';
-import { CERTIFICATE_TYPE_LABELS, CERTIFICATE_STATUS_LABELS, type Certificate, type CertificateStatus } from '../types';
-import { formatDate } from '../utils';
+import { CERTIFICATE_TYPE_LABELS, CERTIFICATE_STATUS_LABELS, PROCESS_RESULT_LABELS, type Certificate, type CertificateStatus } from '../types';
+import { formatDate, getDaysUntilExpiry } from '../utils';
 import * as XLSX from 'xlsx';
 
 const Statistics: React.FC = () => {
@@ -19,6 +19,7 @@ const Statistics: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewFile, setPreviewFile] = useState<string>('');
+  const [selectedStoreId, setSelectedStoreId] = useState<string>('');
 
   const filteredCertificates = useMemo(() => {
     return certificates.filter((cert) => {
@@ -92,6 +93,81 @@ const Statistics: React.FC = () => {
         expiring: certs.filter((c) => c.status === 'expiring' || c.status === 'expired').length,
       }));
   }, [certificates]);
+
+  const storeDashboard = useMemo(() => {
+    if (!selectedStoreId) return null;
+    
+    const storeCerts = certificates.filter((cert) => cert.stores.includes(selectedStoreId));
+    const storeCertIds = new Set(storeCerts.map((c) => c.id));
+    
+    const expiringCerts = storeCerts.filter((c) => {
+      if (c.status === 'expiring') return true;
+      const days = getDaysUntilExpiry(c.endDate);
+      return days > 0 && days <= 30;
+    });
+    
+    const storeRecords = records
+      .filter((r) => storeCertIds.has(r.certificateId))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    const recentRecords = storeRecords.slice(0, 10);
+    
+    const recentFees = storeRecords
+      .filter((r) => r.completeTime)
+      .slice(0, 20);
+    
+    const totalActualFee = recentFees.reduce((sum, r) => sum + ((r.actualFee ?? r.estimatedFee) || 0), 0);
+    const totalEstimatedFee = recentFees.reduce((sum, r) => sum + (r.estimatedFee || 0), 0);
+    
+    return {
+      totalCerts: storeCerts.length,
+      expiringCerts: expiringCerts.length,
+      expiredCerts: storeCerts.filter((c) => c.status === 'expired').length,
+      normalCerts: storeCerts.filter((c) => c.status === 'normal').length,
+      recentRecords,
+      totalActualFee,
+      totalEstimatedFee,
+      hasActualFee: recentFees.some((r) => r.actualFee !== undefined),
+    };
+  }, [selectedStoreId, certificates, records]);
+
+  const feeStatisticsByStore = useMemo(() => {
+    return stores.map((store) => {
+      const storeCertIds = new Set(certificates.filter((c) => c.stores.includes(store.id)).map((c) => c.id));
+      const storeRecords = records.filter((r) => storeCertIds.has(r.certificateId) && r.completeTime);
+      
+      const actualFee = storeRecords.reduce((sum, r) => sum + ((r.actualFee ?? r.estimatedFee) || 0), 0);
+      const estimatedFee = storeRecords.reduce((sum, r) => sum + (r.estimatedFee || 0), 0);
+      
+      return {
+        storeId: store.id,
+        storeName: store.name,
+        actualFee,
+        estimatedFee,
+        recordCount: storeRecords.length,
+      };
+    });
+  }, [stores, certificates, records]);
+
+  const feeStatisticsByMonth = useMemo(() => {
+    const grouped = records
+      .filter((r) => r.completeTime)
+      .reduce<Record<string, typeof records>>((acc, record) => {
+        const month = record.completeTime!.substring(0, 7);
+        if (!acc[month]) acc[month] = [];
+        acc[month].push(record);
+        return acc;
+      }, {});
+    
+    return Object.entries(grouped)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, recs]) => ({
+        month,
+        actualFee: recs.reduce((sum, r) => sum + ((r.actualFee ?? r.estimatedFee) || 0), 0),
+        estimatedFee: recs.reduce((sum, r) => sum + (r.estimatedFee || 0), 0),
+        recordCount: recs.length,
+      }));
+  }, [records]);
 
   const byTypeOption = {
     tooltip: { trigger: 'item' },
@@ -228,8 +304,9 @@ const Statistics: React.FC = () => {
         有效期止: cert.endDate,
         适用门店: cert.stores.map((id) => stores.find((s) => s.id === id)?.name).join(', '),
         状态: CERTIFICATE_STATUS_LABELS[cert.status],
-        最近办理结果: latestRecord ? (latestRecord.result === 'approved' ? '已通过' : latestRecord.result === 'rejected' ? '未通过' : '受理中') : '-',
-        最近办理费用: latestRecord ? `¥${latestRecord.fee.toFixed(2)}` : '-',
+        最近办理结果: latestRecord ? PROCESS_RESULT_LABELS[latestRecord.result] : '-',
+        预计费用: latestRecord ? latestRecord.estimatedFee : undefined,
+        实际费用: latestRecord?.actualFee,
         备注: cert.remark || '',
       };
     });
@@ -335,6 +412,217 @@ const Statistics: React.FC = () => {
         </Col>
       </Row>
 
+      <Card 
+        title={
+          <div className="flex items-center gap-4">
+            <span>门店台账看板</span>
+            <Select
+              placeholder="选择门店查看台账"
+              value={selectedStoreId || undefined}
+              onChange={(value) => setSelectedStoreId(value)}
+              allowClear
+              style={{ width: 200 }}
+            >
+              {stores.map((store) => (
+                <Select.Option key={store.id} value={store.id}>
+                  {store.name}
+                </Select.Option>
+              ))}
+            </Select>
+          </div>
+        }
+        extra={
+          selectedStoreId && (
+            <Button size="small" onClick={() => handleExportExcel(selectedStoreId)}>
+              导出该门店台账
+            </Button>
+          )
+        }
+      >
+        {selectedStoreId && storeDashboard ? (
+          <div className="space-y-6">
+            <Row gutter={16}>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic
+                    title="证照总数"
+                    value={storeDashboard.totalCerts}
+                    prefix={<FileText className="w-5 h-5 text-blue-500" />}
+                    valueStyle={{ color: '#3b82f6' }}
+                  />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic
+                    title="即将到期"
+                    value={storeDashboard.expiringCerts}
+                    prefix={<AlertTriangle className="w-5 h-5 text-orange-500" />}
+                    valueStyle={{ color: '#f59e0b' }}
+                  />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic
+                    title="已过期"
+                    value={storeDashboard.expiredCerts}
+                    prefix={<XCircle className="w-5 h-5 text-red-500" />}
+                    valueStyle={{ color: '#ef4444' }}
+                  />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic
+                    title="正常"
+                    value={storeDashboard.normalCerts}
+                    prefix={<CheckCircle className="w-5 h-5 text-green-500" />}
+                    valueStyle={{ color: '#10b981' }}
+                  />
+                </Card>
+              </Col>
+            </Row>
+            
+            <Row gutter={16}>
+              <Col span={12}>
+                <Card size="small" title="最近办理费用合计">
+                  <div className="flex items-center gap-6">
+                    <div>
+                      <div className="text-gray-500 text-sm">实际费用</div>
+                      <div className="text-2xl font-bold text-green-600">
+                        ¥{storeDashboard.totalActualFee.toFixed(2)}
+                      </div>
+                    </div>
+                    {storeDashboard.totalEstimatedFee !== storeDashboard.totalActualFee && (
+                      <div className="text-gray-400">
+                        <span className="text-sm">预计费用 </span>
+                        <span className="line-through">¥{storeDashboard.totalEstimatedFee.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              </Col>
+              <Col span={12}>
+                <Card size="small" title="最近办理记录">
+                  <div className="flex items-center gap-6">
+                    <div>
+                      <div className="text-gray-500 text-sm">办理中</div>
+                      <div className="text-2xl font-bold text-blue-600">
+                        {storeDashboard.recentRecords.filter((r) => r.result === 'processing').length}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-500 text-sm">已通过</div>
+                      <div className="text-2xl font-bold text-green-600">
+                        {storeDashboard.recentRecords.filter((r) => r.result === 'approved').length}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-500 text-sm">未通过</div>
+                      <div className="text-2xl font-bold text-red-600">
+                        {storeDashboard.recentRecords.filter((r) => r.result === 'rejected').length}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              </Col>
+            </Row>
+            
+            <Card size="small" title="最近续办动态">
+              {storeDashboard.recentRecords.length > 0 ? (
+                <Timeline
+                  items={storeDashboard.recentRecords.map((record) => {
+                    const cert = certificates.find((c) => c.id === record.certificateId);
+                    return {
+                      color: record.result === 'approved' ? 'green' : record.result === 'rejected' ? 'red' : 'blue',
+                      children: (
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="font-medium">{cert?.code || '未知证照'}</span>
+                          <Tag color={record.result === 'approved' ? 'success' : record.result === 'rejected' ? 'error' : 'processing'}>
+                            {PROCESS_RESULT_LABELS[record.result]}
+                          </Tag>
+                          <span className="text-gray-400">
+                            {formatDate(record.createdAt)}
+                          </span>
+                          {record.actualFee !== undefined ? (
+                            <span className="text-green-600">¥{record.actualFee.toFixed(2)}</span>
+                          ) : (
+                            <span className="text-gray-400">¥{record.estimatedFee.toFixed(2)}(预)</span>
+                          )}
+                        </div>
+                      ),
+                    };
+                  })}
+                />
+              ) : (
+                <div className="text-center text-gray-400 py-4">
+                  暂无办理记录
+                </div>
+              )}
+            </Card>
+          </div>
+        ) : (
+          <div className="text-center text-gray-400 py-8">
+            请选择门店查看台账看板
+          </div>
+        )}
+      </Card>
+
+      <Card title="费用汇总统计（按门店）">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b">
+              <th className="text-left py-2">门店</th>
+              <th className="text-center py-2">办理记录数</th>
+              <th className="text-right py-2">预计费用</th>
+              <th className="text-right py-2">实际费用</th>
+            </tr>
+          </thead>
+          <tbody>
+            {feeStatisticsByStore.map((item) => (
+              <tr key={item.storeId} className="border-b">
+                <td className="py-2">{item.storeName}</td>
+                <td className="text-center">{item.recordCount}</td>
+                <td className="text-right text-gray-500">¥{item.estimatedFee.toFixed(2)}</td>
+                <td className="text-right text-green-600 font-medium">¥{item.actualFee.toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="font-bold">
+              <td className="py-2">合计</td>
+              <td className="text-center">{feeStatisticsByStore.reduce((sum, item) => sum + item.recordCount, 0)}</td>
+              <td className="text-right text-gray-500">¥{feeStatisticsByStore.reduce((sum, item) => sum + item.estimatedFee, 0).toFixed(2)}</td>
+              <td className="text-right text-green-600">¥{feeStatisticsByStore.reduce((sum, item) => sum + item.actualFee, 0).toFixed(2)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </Card>
+
+      <Card title="费用汇总统计（按月份）">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b">
+              <th className="text-left py-2">月份</th>
+              <th className="text-center py-2">办理记录数</th>
+              <th className="text-right py-2">预计费用</th>
+              <th className="text-right py-2">实际费用</th>
+            </tr>
+          </thead>
+          <tbody>
+            {feeStatisticsByMonth.map((item) => (
+              <tr key={item.month} className="border-b">
+                <td className="py-2">{item.month}</td>
+                <td className="text-center">{item.recordCount}</td>
+                <td className="text-right text-gray-500">¥{item.estimatedFee.toFixed(2)}</td>
+                <td className="text-right text-green-600 font-medium">¥{item.actualFee.toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
       <Card title="按门店导出台账（支持筛选）">
         <div className="flex gap-4 items-center flex-wrap">
           <span className="text-gray-600">选择门店：</span>
@@ -399,7 +687,7 @@ const Statistics: React.FC = () => {
           </Button>
         </div>
         <div className="mt-3 text-sm text-gray-400">
-          提示：导出台账包含证照基本信息、最近办理结果和费用；一个证照适用多个门店时，在对应门店台账中都会出现
+          提示：导出台账包含证照基本信息、最近办理结果和费用；实际费用未填写时按预计费用统计；一个证照适用多个门店时，在对应门店台账中都会出现
         </div>
       </Card>
 

@@ -28,7 +28,8 @@ export interface ProcessRecord {
   processType: ProcessType;
   materials: string[];
   acceptTime: string;
-  fee: number;
+  estimatedFee: number;
+  actualFee?: number;
   result: ProcessResult;
   completeTime?: string;
   attachment?: string;

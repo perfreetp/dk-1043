@@ -14,7 +14,7 @@ interface AppState {
   updateCertificate: (id: string, updates: Partial<Certificate>) => void;
   deleteCertificate: (id: string) => void;
   
-  addRecord: (record: Omit<ProcessRecord, 'id' | 'createdAt'>) => void;
+  addRecord: (record: Omit<ProcessRecord, 'id' | 'createdAt'>) => string;
   updateRecord: (id: string, updates: Partial<ProcessRecord>) => void;
   deleteRecord: (id: string) => void;
   
@@ -24,7 +24,6 @@ interface AppState {
   
   updateCertificatesStatus: () => void;
   batchUpdateCertificatesStatus: (ids: string[], status: Certificate['status']) => void;
-  handleRecordApproved: (recordId: string, newEndDate: string, newRemark?: string) => void;
 }
 
 export const useStore = create<AppState>()(
@@ -36,7 +35,11 @@ export const useStore = create<AppState>()(
         lastRecordId: undefined,
         lastRecordResult: undefined,
       })),
-      records: initialRecords,
+      records: initialRecords.map(r => ({
+        ...r,
+        estimatedFee: r.estimatedFee || 0,
+        actualFee: r.actualFee,
+      })),
       reminderRules: initialReminderRules,
       stores: stores,
 
@@ -77,19 +80,38 @@ export const useStore = create<AppState>()(
       },
 
       addRecord: (record) => {
+        const now = new Date().toISOString();
         const newRecord: ProcessRecord = {
           ...record,
           id: generateId(),
-          createdAt: new Date().toISOString(),
+          createdAt: now,
         };
+        
         set((state) => ({
           records: [...state.records, newRecord],
         }));
+        
+        if (record.result === 'approved' && record.completeTime) {
+          const state = get();
+          const certificate = state.certificates.find(c => c.id === record.certificateId);
+          if (certificate) {
+            const newEndDate = new Date(new Date(certificate.endDate).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            get().updateCertificate(record.certificateId, {
+              endDate: newEndDate,
+              status: 'normal',
+              statusManuallySet: false,
+              lastRecordId: newRecord.id,
+              lastRecordResult: 'approved',
+            });
+          }
+        }
+        
+        return newRecord.id;
       },
 
       updateRecord: (id, updates) => {
         const state = get();
-        const record = state.records.find(r => r.id === id);
+        const oldRecord = state.records.find(r => r.id === id);
         
         set((state) => ({
           records: state.records.map((rec) =>
@@ -97,10 +119,18 @@ export const useStore = create<AppState>()(
           ),
         }));
         
-        if (record && updates.result === 'approved' && updates.completeTime) {
-          const certificate = state.certificates.find(c => c.id === record.certificateId);
+        if (updates.result === 'approved' && updates.completeTime && oldRecord?.result !== 'approved') {
+          const currentState = get();
+          const certificate = currentState.certificates.find(c => c.id === oldRecord?.certificateId);
           if (certificate) {
-            get().handleRecordApproved(id, certificate.endDate);
+            const newEndDate = new Date(new Date(certificate.endDate).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            get().updateCertificate(certificate.id, {
+              endDate: newEndDate,
+              status: 'normal',
+              statusManuallySet: false,
+              lastRecordId: id,
+              lastRecordResult: 'approved',
+            });
           }
         }
       },
@@ -159,25 +189,6 @@ export const useStore = create<AppState>()(
           certificates: state.certificates.map((cert) =>
             ids.includes(cert.id)
               ? { ...cert, status, statusManuallySet: true, updatedAt: new Date().toISOString() }
-              : cert
-          ),
-        }));
-      },
-
-      handleRecordApproved: (recordId, currentEndDate, newRemark) => {
-        set((state) => ({
-          certificates: state.certificates.map((cert) =>
-            cert.id === state.records.find(r => r.id === recordId)?.certificateId
-              ? {
-                  ...cert,
-                  endDate: new Date(new Date(currentEndDate).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                  status: 'normal',
-                  statusManuallySet: false,
-                  lastRecordId: recordId,
-                  lastRecordResult: 'approved',
-                  remark: newRemark || cert.remark,
-                  updatedAt: new Date().toISOString(),
-                }
               : cert
           ),
         }));
