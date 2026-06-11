@@ -1,0 +1,163 @@
+import type { Certificate, Record, ReminderRule, Store } from '../types';
+import { generateId } from '../utils';
+
+export const stores: Store[] = [
+  { id: '1', name: '总店', address: '北京市朝阳区建国路88号', contact: '张三', phone: '010-12345678', createdAt: '2024-01-01' },
+  { id: '2', name: '分店A', address: '北京市海淀区中关村大街1号', contact: '李四', phone: '010-23456789', createdAt: '2024-01-15' },
+  { id: '3', name: '分店B', address: '北京市西城区金融街8号', contact: '王五', phone: '010-34567890', createdAt: '2024-02-01' },
+];
+
+const now = new Date();
+const addDays = (days: number): string => {
+  const date = new Date(now);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().split('T')[0];
+};
+
+export const initialCertificates: Certificate[] = [
+  {
+    id: generateId(),
+    code: 'BL-2024-001',
+    type: 'business_license',
+    holder: '北京某某科技有限公司',
+    issuer: '北京市工商行政管理局',
+    startDate: '2024-01-01',
+    endDate: addDays(365),
+    stores: ['1', '2'],
+    status: 'normal',
+    remark: '主营业执证',
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01',
+  },
+  {
+    id: generateId(),
+    code: 'BL-2024-002',
+    type: 'business_license',
+    holder: '北京某某科技有限公司分店',
+    issuer: '北京市工商行政管理局',
+    startDate: '2024-02-01',
+    endDate: addDays(20),
+    stores: ['2'],
+    status: 'expiring',
+    remark: '分店营业执照',
+    createdAt: '2024-02-01',
+    updatedAt: '2024-02-01',
+  },
+  {
+    id: generateId(),
+    code: 'QL-2024-001',
+    type: 'qualification',
+    holder: '张三分公司',
+    issuer: '北京市人力资源和社会保障局',
+    startDate: '2023-06-01',
+    endDate: addDays(-10),
+    stores: ['1'],
+    status: 'expired',
+    remark: '需要尽快续期',
+    createdAt: '2023-06-01',
+    updatedAt: '2024-06-01',
+  },
+  {
+    id: generateId(),
+    code: 'QL-2024-002',
+    type: 'qualification',
+    holder: '李四',
+    issuer: '北京市人力资源和社会保障局',
+    startDate: '2024-03-01',
+    endDate: addDays(45),
+    stores: ['1', '2', '3'],
+    status: 'normal',
+    remark: '安全生产资格证',
+    createdAt: '2024-03-01',
+    updatedAt: '2024-03-01',
+  },
+  {
+    id: generateId(),
+    code: 'IN-2024-001',
+    type: 'inspection',
+    holder: '北京某某科技有限公司',
+    issuer: '北京市质量技术监督局',
+    startDate: '2024-01-15',
+    endDate: addDays(25),
+    stores: ['1', '2', '3'],
+    status: 'expiring',
+    remark: '电梯检验合格证',
+    createdAt: '2024-01-15',
+    updatedAt: '2024-01-15',
+  },
+  {
+    id: generateId(),
+    code: 'IN-2024-002',
+    type: 'inspection',
+    holder: '北京某某科技有限公司',
+    issuer: '北京市消防救援总队',
+    startDate: '2024-02-01',
+    endDate: addDays(180),
+    stores: ['1'],
+    status: 'normal',
+    remark: '消防验收合格证',
+    createdAt: '2024-02-01',
+    updatedAt: '2024-02-01',
+  },
+  {
+    id: generateId(),
+    code: 'BL-2024-003',
+    type: 'business_license',
+    holder: '分店B',
+    issuer: '北京市工商行政管理局',
+    startDate: '2024-03-01',
+    endDate: addDays(5),
+    stores: ['3'],
+    status: 'expiring',
+    remark: '即将到期',
+    createdAt: '2024-03-01',
+    updatedAt: '2024-03-01',
+  },
+];
+
+export const initialRecords: Record[] = [
+  {
+    id: generateId(),
+    certificateId: initialCertificates[0].id,
+    processType: 'renewal',
+    materials: ['营业执照副本', '法人身份证', '公司章程'],
+    acceptTime: '2024-01-01 09:00',
+    fee: 500,
+    result: 'approved',
+    completeTime: '2024-01-03 16:00',
+    remark: '顺利完成续期',
+    createdAt: '2024-01-01',
+  },
+  {
+    id: generateId(),
+    certificateId: initialCertificates[2].id,
+    processType: 'renewal',
+    materials: ['身份证', '原资格证', '培训证明'],
+    acceptTime: '2024-06-01 10:30',
+    fee: 300,
+    result: 'processing',
+    remark: '续期申请中',
+    createdAt: '2024-06-01',
+  },
+];
+
+export const initialReminderRules: ReminderRule[] = [
+  {
+    id: generateId(),
+    advanceDays: 7,
+    handler: '张三',
+    popupEnabled: true,
+    notificationEnabled: true,
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01',
+  },
+  {
+    id: generateId(),
+    advanceDays: 30,
+    handler: '李四',
+    popupEnabled: true,
+    notificationEnabled: false,
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01',
+  },
+];
