@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Row, Col, Table, Tag, Button, Progress } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { useStore } from '../stores';
-import { CERTIFICATE_TYPE_LABELS, CERTIFICATE_STATUS_LABELS, type Certificate } from '../types';
-import { formatDate, getDaysUntilExpiry, groupBy } from '../utils';
+import { CERTIFICATE_TYPE_LABELS, type Certificate } from '../types';
+import { formatDate, getDaysUntilExpiry } from '../utils';
 import {
   CheckCircle,
   AlertTriangle,
@@ -79,7 +79,7 @@ const Overview: React.FC = () => {
       title: '证照编号',
       dataIndex: 'code',
       key: 'code',
-      render: (text: string, record: Certificate) => (
+      render: (text: string) => (
         <a onClick={() => navigate('/certificates')} className="text-blue-600 hover:underline">
           {text}
         </a>
@@ -100,7 +100,7 @@ const Overview: React.FC = () => {
       title: '到期日期',
       dataIndex: 'endDate',
       key: 'endDate',
-      render: (date: string, record: Certificate) => {
+      render: (date: string) => {
         const days = getDaysUntilExpiry(date);
         return (
           <span className={days < 0 ? 'text-red-600' : days <= 30 ? 'text-yellow-600' : ''}>

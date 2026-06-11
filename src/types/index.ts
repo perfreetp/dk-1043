@@ -19,7 +19,7 @@ export interface Certificate {
   updatedAt: string;
 }
 
-export interface Record {
+export interface ProcessRecord {
   id: string;
   certificateId: string;
   processType: ProcessType;

@@ -1,4 +1,4 @@
-import type { Certificate, Record, ReminderRule, Store } from '../types';
+import type { Certificate, ProcessRecord, ReminderRule, Store } from '../types';
 import { generateId } from '../utils';
 
 export const stores: Store[] = [
@@ -115,7 +115,7 @@ export const initialCertificates: Certificate[] = [
   },
 ];
 
-export const initialRecords: Record[] = [
+export const initialRecords: ProcessRecord[] = [
   {
     id: generateId(),
     certificateId: initialCertificates[0].id,

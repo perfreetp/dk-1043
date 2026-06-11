@@ -1,17 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { Card, Row, Col, Table, Input, Select, Button, DatePicker, Tag, Modal, Switch, message, Statistic, Space } from 'antd';
-import { Search, Download, Printer, RefreshCw, Eye, CheckCircle } from 'lucide-react';
+import { Card, Row, Col, Table, Input, Select, Button, Tag, Modal, message, Space } from 'antd';
+import { Search, Download, Printer, RefreshCw, Eye } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import { useStore } from '../stores';
 import { CERTIFICATE_TYPE_LABELS, CERTIFICATE_STATUS_LABELS, type Certificate, type CertificateStatus } from '../types';
-import { formatDate, groupBy } from '../utils';
+import { formatDate } from '../utils';
 import * as XLSX from 'xlsx';
 
-const { RangePicker } = DatePicker;
-const { MonthPicker } = DatePicker;
-
 const Statistics: React.FC = () => {
-  const { certificates, stores, records, updateCertificate } = useStore();
+  const { certificates, stores, updateCertificate } = useStore();
   const [searchText, setSearchText] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<CertificateStatus>('' as CertificateStatus);
@@ -35,24 +32,26 @@ const Statistics: React.FC = () => {
   }, [certificates, searchText, typeFilter, statusFilter, storeFilter]);
 
   const statisticsByStore = useMemo(() => {
-    const grouped = groupBy(certificates, (cert) => cert.stores.join(','));
-    return Object.entries(grouped).map(([stores, certs]) => {
-      const storeNames = stores
-        .split(',')
-        .map((id) => stores.find((s) => s === id)?.name || id)
-        .join(', ');
+    return stores.map((store) => {
+      const storeCerts = certificates.filter((cert) => cert.stores.includes(store.id));
       return {
-        storeName: storeNames || '未分配',
-        total: certs.length,
-        normal: certs.filter((c) => c.status === 'normal').length,
-        expiring: certs.filter((c) => c.status === 'expiring').length,
-        expired: certs.filter((c) => c.status === 'expired').length,
+        storeId: store.id,
+        storeName: store.name,
+        total: storeCerts.length,
+        normal: storeCerts.filter((c) => c.status === 'normal').length,
+        expiring: storeCerts.filter((c) => c.status === 'expiring').length,
+        expired: storeCerts.filter((c) => c.status === 'expired').length,
       };
     });
   }, [certificates, stores]);
 
   const statisticsByType = useMemo(() => {
-    const grouped = groupBy(certificates, 'type');
+    const grouped = certificates.reduce<Record<string, Certificate[]>>((acc, cert) => {
+      if (!acc[cert.type]) acc[cert.type] = [];
+      acc[cert.type].push(cert);
+      return acc;
+    }, {});
+    
     return Object.entries(grouped).map(([type, certs]) => ({
       type,
       label: CERTIFICATE_TYPE_LABELS[type as keyof typeof CERTIFICATE_TYPE_LABELS],
@@ -64,7 +63,13 @@ const Statistics: React.FC = () => {
   }, [certificates]);
 
   const statisticsByMonth = useMemo(() => {
-    const grouped = groupBy(certificates, (cert) => cert.endDate.substring(0, 7));
+    const grouped = certificates.reduce<Record<string, Certificate[]>>((acc, cert) => {
+      const month = cert.endDate.substring(0, 7);
+      if (!acc[month]) acc[month] = [];
+      acc[month].push(cert);
+      return acc;
+    }, {});
+    
     return Object.entries(grouped)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([month, certs]) => ({
@@ -224,7 +229,7 @@ const Statistics: React.FC = () => {
             </head>
             <body>
               <h1>证照台账</h1>
-              ${printContent.outerHTML}
+              ${printContent.innerHTML}
             </body>
           </html>
         `);
@@ -262,8 +267,8 @@ const Statistics: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {statisticsByStore.map((item, index) => (
-                  <tr key={index} className="border-b">
+                {statisticsByStore.map((item) => (
+                  <tr key={item.storeId} className="border-b">
                     <td className="py-2">{item.storeName}</td>
                     <td className="text-center">{item.total}</td>
                     <td className="text-center text-green-600">{item.normal}</td>
@@ -317,7 +322,7 @@ const Statistics: React.FC = () => {
           >
             {Object.entries(CERTIFICATE_TYPE_LABELS).map(([value, label]) => (
               <Select.Option key={value} value={value}>
-                {label}
+                {String(label)}
               </Select.Option>
             ))}
           </Select>
@@ -330,7 +335,7 @@ const Statistics: React.FC = () => {
           >
             {Object.entries(CERTIFICATE_STATUS_LABELS).map(([value, label]) => (
               <Select.Option key={value} value={value}>
-                {label}
+                {String(label)}
               </Select.Option>
             ))}
           </Select>
@@ -352,7 +357,7 @@ const Statistics: React.FC = () => {
             onClick={() => {
               setSearchText('');
               setTypeFilter('');
-              setStatusFilter('' as any);
+              setStatusFilter('' as CertificateStatus);
               setStoreFilter('');
             }}
           >

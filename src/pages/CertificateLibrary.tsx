@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Table, Button, Input, Select, Space, Tag, Modal, Form, DatePicker, Upload, Popconfirm, message } from 'antd';
 import { Plus, Search, Upload as UploadIcon, Eye, Delete, Edit2 } from 'lucide-react';
+import type { UploadFile } from 'antd/es/upload/interface';
 import { useStore } from '../stores';
 import { CERTIFICATE_TYPE_LABELS, CERTIFICATE_STATUS_LABELS, type Certificate, type CertificateType } from '../types';
 import { formatDate, getDaysUntilExpiry } from '../utils';
@@ -15,8 +16,11 @@ const CertificateLibrary: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<Certificate['status'] | ''>('');
   const [storeFilter, setStoreFilter] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [editingCertificate, setEditingCertificate] = useState<Certificate | null>(null);
   const [form] = Form.useForm();
+  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [existingAttachment, setExistingAttachment] = useState<string>('');
 
   const filteredCertificates = certificates.filter((cert) => {
     const matchesSearch =
@@ -32,12 +36,14 @@ const CertificateLibrary: React.FC = () => {
 
   const handleAdd = () => {
     setEditingCertificate(null);
+    setExistingAttachment('');
     form.resetFields();
     setIsModalOpen(true);
   };
 
   const handleEdit = (record: Certificate) => {
     setEditingCertificate(record);
+    setExistingAttachment(record.attachment || '');
     form.setFieldsValue({
       ...record,
       stores: record.stores,
@@ -46,15 +52,38 @@ const CertificateLibrary: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const handlePreview = (record: Certificate) => {
+    if (record.attachment) {
+      setPreviewUrl(record.attachment);
+      setIsPreviewOpen(true);
+    } else {
+      message.info('暂无附件');
+    }
+  };
+
   const handleDelete = (id: string) => {
     deleteCertificate(id);
     message.success('删除成功');
+  };
+
+  const handleAttachmentChange = (info: { file: UploadFile }) => {
+    const file = info.file.originFileObj || info.file;
+    if (file instanceof Blob) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        form.setFieldsValue({ attachment: base64 });
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
       const [startDate, endDate] = values.dateRange;
+
+      const attachment = values.attachment || existingAttachment;
 
       const certificateData = {
         code: values.code,
@@ -64,7 +93,7 @@ const CertificateLibrary: React.FC = () => {
         startDate: startDate.format('YYYY-MM-DD'),
         endDate: endDate.format('YYYY-MM-DD'),
         stores: values.stores || [],
-        attachment: values.attachment?.file?.name || '',
+        attachment,
         remark: values.remark || '',
       };
 
@@ -77,10 +106,17 @@ const CertificateLibrary: React.FC = () => {
       }
 
       setIsModalOpen(false);
+      setExistingAttachment('');
       form.resetFields();
     } catch (error) {
       console.error('Validation failed:', error);
     }
+  };
+
+  const handleModalClose = () => {
+    setIsModalOpen(false);
+    setExistingAttachment('');
+    form.resetFields();
   };
 
   const columns = [
@@ -166,16 +202,16 @@ const CertificateLibrary: React.FC = () => {
       title: '操作',
       key: 'action',
       fixed: 'right' as const,
-      width: 180,
+      width: 240,
       render: (_: unknown, record: Certificate) => (
         <Space size="small">
           <Button
             type="link"
             size="small"
             icon={<Eye className="w-4 h-4" />}
-            onClick={() => handleEdit(record)}
+            onClick={() => handlePreview(record)}
           >
-            查看
+            预览
           </Button>
           <Button
             type="link"
@@ -206,6 +242,13 @@ const CertificateLibrary: React.FC = () => {
     },
   ];
 
+  const uploadButton = (
+    <div>
+      <UploadIcon className="w-6 h-6" />
+      <div className="mt-2">上传扫描件</div>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -233,7 +276,7 @@ const CertificateLibrary: React.FC = () => {
           >
             {Object.entries(CERTIFICATE_TYPE_LABELS).map(([value, label]) => (
               <Select.Option key={value} value={value}>
-                {label}
+                {String(label)}
               </Select.Option>
             ))}
           </Select>
@@ -246,7 +289,7 @@ const CertificateLibrary: React.FC = () => {
           >
             {Object.entries(CERTIFICATE_STATUS_LABELS).map(([value, label]) => (
               <Select.Option key={value} value={value}>
-                {label}
+                {String(label)}
               </Select.Option>
             ))}
           </Select>
@@ -292,10 +335,7 @@ const CertificateLibrary: React.FC = () => {
         title={editingCertificate ? '编辑证照' : '新增证照'}
         open={isModalOpen}
         onOk={handleSubmit}
-        onCancel={() => {
-          setIsModalOpen(false);
-          form.resetFields();
-        }}
+        onCancel={handleModalClose}
         width={700}
         okText="确认"
         cancelText="取消"
@@ -316,7 +356,7 @@ const CertificateLibrary: React.FC = () => {
             <Select placeholder="请选择证照类型">
               {Object.entries(CERTIFICATE_TYPE_LABELS).map(([value, label]) => (
                 <Select.Option key={value} value={value}>
-                  {label}
+                  {String(label)}
                 </Select.Option>
               ))}
             </Select>
@@ -352,14 +392,54 @@ const CertificateLibrary: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item name="attachment" label="扫描件">
-            <Upload beforeUpload={() => false}>
-              <Button icon={<UploadIcon className="w-4 h-4" />}>上传扫描件</Button>
+            <Upload
+              name="avatar"
+              listType="picture-card"
+              className="avatar-uploader"
+              showUploadList={true}
+              beforeUpload={() => false}
+              onChange={handleAttachmentChange}
+              maxCount={1}
+            >
+              {uploadButton}
             </Upload>
+            {existingAttachment && !form.getFieldValue('attachment') && (
+              <div className="mt-2 text-sm text-gray-500">
+                已有附件: <Button type="link" size="small" onClick={() => { setPreviewUrl(existingAttachment); setIsPreviewOpen(true); }}>预览</Button>
+              </div>
+            )}
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <Input.TextArea rows={3} placeholder="请输入备注" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="附件预览"
+        open={isPreviewOpen}
+        onCancel={() => setIsPreviewOpen(false)}
+        footer={null}
+        width={800}
+      >
+        <div className="py-4 text-center">
+          {previewUrl ? (
+            previewUrl.startsWith('data:') ? (
+              <img src={previewUrl} alt="附件预览" className="max-w-full mx-auto" />
+            ) : (
+              <div className="text-gray-500">
+                <Eye className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+                <p>附件格式不支持预览</p>
+                <p className="text-sm mt-2">{previewUrl}</p>
+              </div>
+            )
+          ) : (
+            <div className="text-gray-500">
+              <Eye className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+              <p>暂无附件</p>
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );

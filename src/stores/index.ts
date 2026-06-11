@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Certificate, Record, ReminderRule, Store } from '../types';
+import type { Certificate, ProcessRecord, ReminderRule, Store } from '../types';
 import { initialCertificates, initialRecords, initialReminderRules, stores } from '../data';
 import { calculateStatus, generateId } from '../utils';
 
 interface AppState {
   certificates: Certificate[];
-  records: Record[];
+  records: ProcessRecord[];
   reminderRules: ReminderRule[];
   stores: Store[];
   
@@ -14,8 +14,8 @@ interface AppState {
   updateCertificate: (id: string, updates: Partial<Certificate>) => void;
   deleteCertificate: (id: string) => void;
   
-  addRecord: (record: Omit<Record, 'id' | 'createdAt'>) => void;
-  updateRecord: (id: string, updates: Partial<Record>) => void;
+  addRecord: (record: Omit<ProcessRecord, 'id' | 'createdAt'>) => void;
+  updateRecord: (id: string, updates: Partial<ProcessRecord>) => void;
   
   addReminderRule: (rule: Omit<ReminderRule, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateReminderRule: (id: string, updates: Partial<ReminderRule>) => void;
@@ -26,7 +26,7 @@ interface AppState {
 
 export const useStore = create<AppState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       certificates: initialCertificates,
       records: initialRecords,
       reminderRules: initialReminderRules,
@@ -68,7 +68,7 @@ export const useStore = create<AppState>()(
       },
 
       addRecord: (record) => {
-        const newRecord: Record = {
+        const newRecord: ProcessRecord = {
           ...record,
           id: generateId(),
           createdAt: new Date().toISOString(),

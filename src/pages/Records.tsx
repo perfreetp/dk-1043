@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { Table, Button, Input, Select, Modal, Form, DatePicker, InputNumber, message, Tag, Card, Row, Col, Descriptions } from 'antd';
-import { Plus, Search, Eye, Edit2, FileText } from 'lucide-react';
+import { Plus, Search, Eye, Edit2 } from 'lucide-react';
+import dayjs from 'dayjs';
 import { useStore } from '../stores';
-import { PROCESS_TYPE_LABELS, PROCESS_RESULT_LABELS, type Record as RecordType, type ProcessType, type ProcessResult } from '../types';
+import { PROCESS_TYPE_LABELS, PROCESS_RESULT_LABELS, type ProcessRecord, type ProcessType, type ProcessResult } from '../types';
 import { formatDateTime } from '../utils';
 
 const Records: React.FC = () => {
   const { records, certificates, addRecord, updateRecord } = useStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-  const [editingRecord, setEditingRecord] = useState<RecordType | null>(null);
+  const [editingRecord, setEditingRecord] = useState<ProcessRecord | null>(null);
   const [searchText, setSearchText] = useState('');
   const [processTypeFilter, setProcessTypeFilter] = useState<ProcessType | ''>('');
   const [resultFilter, setResultFilter] = useState<ProcessResult | ''>('');
@@ -32,17 +33,17 @@ const Records: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleEdit = (record: RecordType) => {
+  const handleEdit = (record: ProcessRecord) => {
     setEditingRecord(record);
     form.setFieldsValue({
       ...record,
-      acceptTime: record.acceptTime ? new Date(record.acceptTime) : null,
-      completeTime: record.completeTime ? new Date(record.completeTime) : null,
+      acceptTime: record.acceptTime ? dayjs(record.acceptTime) : null,
+      completeTime: record.completeTime ? dayjs(record.completeTime) : null,
     });
     setIsModalOpen(true);
   };
 
-  const handleView = (record: RecordType) => {
+  const handleView = (record: ProcessRecord) => {
     setEditingRecord(record);
     setIsViewModalOpen(true);
   };
@@ -50,11 +51,18 @@ const Records: React.FC = () => {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      const acceptTime = values.acceptTime ? values.acceptTime.format('YYYY-MM-DD HH:mm') : '';
+      const completeTime = values.completeTime ? values.completeTime.format('YYYY-MM-DD HH:mm') : '';
+      
       const recordData = {
-        ...values,
-        acceptTime: values.acceptTime?.format('YYYY-MM-DD HH:mm') || '',
-        completeTime: values.completeTime?.format('YYYY-MM-DD HH:mm') || '',
+        certificateId: values.certificateId,
+        processType: values.processType,
         materials: values.materials || [],
+        acceptTime,
+        fee: values.fee || 0,
+        result: values.result,
+        completeTime,
+        remark: values.remark || '',
       };
 
       if (editingRecord) {
@@ -94,7 +102,7 @@ const Records: React.FC = () => {
       title: '关联证照',
       key: 'certificate',
       width: 180,
-      render: (_: unknown, record: RecordType) => {
+      render: (_: unknown, record: ProcessRecord) => {
         const cert = getCertificateInfo(record.certificateId);
         return cert ? (
           <span className="text-blue-600">{cert.code}</span>
@@ -107,7 +115,7 @@ const Records: React.FC = () => {
       title: '持有人',
       key: 'holder',
       width: 150,
-      render: (_: unknown, record: RecordType) => {
+      render: (_: unknown, record: ProcessRecord) => {
         const cert = getCertificateInfo(record.certificateId);
         return cert?.holder || '-';
       },
@@ -123,7 +131,8 @@ const Records: React.FC = () => {
       title: '受理时间',
       dataIndex: 'acceptTime',
       key: 'acceptTime',
-      width: 180,
+      width: 160,
+      render: (time: string) => time || '-',
     },
     {
       title: '办理费用',
@@ -144,10 +153,17 @@ const Records: React.FC = () => {
       ),
     },
     {
+      title: '完成时间',
+      dataIndex: 'completeTime',
+      key: 'completeTime',
+      width: 160,
+      render: (time: string) => time || '-',
+    },
+    {
       title: '操作',
       key: 'action',
-      width: 180,
-      render: (_: unknown, record: RecordType) => (
+      width: 150,
+      render: (_: unknown, record: ProcessRecord) => (
         <div className="flex gap-2">
           <Button
             type="link"
@@ -238,7 +254,7 @@ const Records: React.FC = () => {
           >
             {Object.entries(PROCESS_TYPE_LABELS).map(([value, label]) => (
               <Select.Option key={value} value={value}>
-                {label}
+                {String(label)}
               </Select.Option>
             ))}
           </Select>
@@ -251,7 +267,7 @@ const Records: React.FC = () => {
           >
             {Object.entries(PROCESS_RESULT_LABELS).map(([value, label]) => (
               <Select.Option key={value} value={value}>
-                {label}
+                {String(label)}
               </Select.Option>
             ))}
           </Select>
@@ -308,7 +324,7 @@ const Records: React.FC = () => {
             <Select placeholder="请选择办理类型">
               {Object.entries(PROCESS_TYPE_LABELS).map(([value, label]) => (
                 <Select.Option key={value} value={value}>
-                  {label}
+                  {String(label)}
                 </Select.Option>
               ))}
             </Select>
@@ -322,22 +338,22 @@ const Records: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item name="acceptTime" label="受理时间">
-            <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
+            <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} placeholder="选择受理时间" />
           </Form.Item>
-          <Form.Item name="fee" label="办理费用">
+          <Form.Item name="fee" label="办理费用" initialValue={0}>
             <InputNumber min={0} style={{ width: '100%' }} placeholder="请输入办理费用" />
           </Form.Item>
           <Form.Item name="result" label="办理结果" initialValue="processing">
             <Select placeholder="请选择办理结果">
               {Object.entries(PROCESS_RESULT_LABELS).map(([value, label]) => (
                 <Select.Option key={value} value={value}>
-                  {label}
+                  {String(label)}
                 </Select.Option>
               ))}
             </Select>
           </Form.Item>
           <Form.Item name="completeTime" label="完成时间">
-            <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
+            <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} placeholder="选择完成时间" />
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <Input.TextArea rows={3} placeholder="请输入备注" />
